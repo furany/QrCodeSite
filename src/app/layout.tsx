@@ -6,7 +6,7 @@ import { getBaseUrl } from "@/lib/env";
 import "./globals.css";
 
 const geistSans = Geist({
-  variable: "--font-geist-sans",
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
@@ -25,6 +25,15 @@ export const metadata: Metadata = {
   },
   description:
     "Erstelle statische und dynamische QR-Codes mit Logo, Farben, PNG/SVG-Export und selbst gehosteten Kurzlinks.",
+  keywords: [
+    "QR-Code",
+    "Generator",
+    "Kurzlink",
+    "Redirect",
+    "Tracking",
+    "Selbst gehostet",
+  ],
+  authors: [{ name: "Qrft" }],
   alternates: {
     canonical: "/",
   },
@@ -45,6 +54,9 @@ export const metadata: Metadata = {
   robots: {
     index: true,
     follow: true,
+    "max-image-preview": "large",
+    "max-snippet": -1,
+    "max-video-preview": -1,
   },
 };
 
@@ -61,7 +73,7 @@ export default function RootLayout({
     >
       <body className="flex min-h-full flex-col bg-background text-foreground">
         <SiteHeader />
-        <main className="flex-1">{children}</main>
+        <main className="flex flex-1 flex-col">{children}</main>
         <Toaster richColors position="top-center" />
       </body>
     </html>
