@@ -1,82 +1,116 @@
-import Link from "next/link";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { db } from "@/lib/db";
-import { qrCodes, type QrCode } from "@/lib/schema";
 import { desc } from "drizzle-orm";
+import Link from "next/link";
+import { BarChart3, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { DashboardRow } from "@/components/dashboard-row";
+import { db } from "@/lib/db";
+import { getBaseUrl } from "@/lib/env";
+import { qrCodes, type QrCode } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export const metadata = {
-  title: "Dashboard — Qrft",
+  title: "Dashboard",
+  description: "Dynamische QR-Codes verwalten und Scan-Zahlen prüfen.",
 };
 
 export default async function DashboardPage() {
   let rows: QrCode[] = [];
   let dbError: string | null = null;
+
   try {
-    rows = await db
-      .select()
-      .from(qrCodes)
-      .orderBy(desc(qrCodes.createdAt));
-  } catch (e) {
+    rows = await db.select().from(qrCodes).orderBy(desc(qrCodes.createdAt));
+  } catch (error) {
     dbError =
-      e instanceof Error ? e.message : "Datenbank nicht erreichbar";
+      error instanceof Error ? error.message : "Datenbank nicht erreichbar";
   }
 
-  const base = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+  const base = getBaseUrl();
+  const totalScans = rows.reduce((sum, row) => sum + row.scanCount, 0);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-12">
-      <div className="mb-8 flex items-end justify-between gap-4">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
+      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+          <p className="text-sm font-medium text-primary">Qrft Admin</p>
+          <h1 className="text-3xl font-semibold sm:text-4xl">
             Dashboard
           </h1>
-          <p className="mt-2 text-muted-foreground">
-            Verwalte deine dynamischen QR-Codes und ändere ihre Ziele.
+          <p className="mt-2 max-w-2xl text-muted-foreground">
+            Dynamische Codes, Ziel-URLs und Scan-Zahlen an einem Ort.
           </p>
         </div>
-        <Button render={<Link href="/create" />}>Neuer Code</Button>
+        <Button className="h-10" render={<Link href="/create" />}>
+          <Plus className="size-4" />
+          Neuer Code
+        </Button>
+      </div>
+
+      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+        <Metric label="Codes" value={rows.length.toString()} />
+        <Metric label="Scans" value={totalScans.toString()} />
+        <Metric
+          label="Letzter Code"
+          value={
+            rows[0]?.createdAt
+              ? rows[0].createdAt.toLocaleDateString("de-DE")
+              : "-"
+          }
+        />
       </div>
 
       {dbError && (
-        <Card className="mb-6 border-destructive/40 bg-destructive/10 p-4 text-sm">
-          <p className="font-medium">Datenbank-Verbindung fehlgeschlagen</p>
+        <Card className="mb-5 border-destructive/30 bg-destructive/10 p-4 text-sm">
+          <p className="font-medium text-destructive">
+            Datenbank-Verbindung fehlgeschlagen
+          </p>
           <p className="mt-1 text-muted-foreground">{dbError}</p>
           <p className="mt-2 text-xs text-muted-foreground">
-            Prüfe <code className="font-mono">DATABASE_URL</code> in deiner
-            .env oder im Dokploy-Service.
+            Prüfe DATABASE_URL in Dokploy und ob der Migrationlauf beim Start
+            erfolgreich war.
           </p>
         </Card>
       )}
 
-      {rows.length === 0 && !dbError && (
-        <Card className="p-10 text-center">
-          <p className="text-muted-foreground">
-            Noch keine dynamischen Codes. Erstelle deinen ersten unter{" "}
-            <Link href="/create" className="underline">
-              /create
-            </Link>
-            .
-          </p>
+      {rows.length === 0 && !dbError ? (
+        <Card className="grid min-h-56 place-items-center border-dashed p-8 text-center">
+          <div>
+            <BarChart3 className="mx-auto size-8 text-muted-foreground" />
+            <p className="mt-3 font-medium">Noch keine dynamischen Codes</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Erstelle den ersten Code und die Scans erscheinen hier.
+            </p>
+          </div>
         </Card>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <DashboardRow
+              key={row.code}
+              code={row.code}
+              initialTargetUrl={row.targetUrl}
+              initialTitle={row.title}
+              scanCount={row.scanCount}
+              createdAt={row.createdAt.toISOString()}
+              lastScanAt={row.lastScanAt?.toISOString() ?? null}
+              shortUrl={`${base}/r/${row.code}`}
+            />
+          ))}
+        </div>
       )}
-
-      <div className="space-y-3">
-        {rows.map((r) => (
-          <DashboardRow
-            key={r.code}
-            code={r.code}
-            initialTargetUrl={r.targetUrl}
-            initialTitle={r.title}
-            scanCount={r.scanCount}
-            createdAt={r.createdAt.toISOString()}
-            shortUrl={`${base.replace(/\/$/, "")}/r/${r.code}`}
-          />
-        ))}
-      </div>
     </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <Card className="border-border bg-card p-4 shadow-sm">
+      <p className="text-xs font-medium uppercase text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-semibold">{value}</p>
+    </Card>
   );
 }

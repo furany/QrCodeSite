@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Qrft
 
-## Getting Started
+Self-hosted QR-Code-Tool mit statischen Codes, dynamischen Kurzlinks, Logo-/Farboptionen, PNG/SVG-Export und Scan-Zähler.
 
-First, run the development server:
+## Lokal starten
 
 ```bash
+npm install
+cp .env.example .env.local
+npm run db:migrate
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Die App läuft lokal auf `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Dokploy mit Railpack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+In Dokploy:
 
-## Learn More
+1. Application aus Git erstellen.
+2. Build Type auf `Railpack` setzen.
+3. Domain auf Container-Port `3000` legen.
+4. Postgres als Dokploy-Datenbank anlegen.
+5. In der App die Environment Variables unten setzen.
 
-To learn more about Next.js, take a look at the following resources:
+## Environment Variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Auf der Dokploy-App:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+DATABASE_URL=postgresql://USER:PASSWORD@INTERNAL_HOST:5432/DATABASE
+APP_BASE_URL=https://deine-domain.de
+ADMIN_PASSWORD=ein-langes-passwort
+DB_POOL_MAX=5
+RAILPACK_BUILD_CMD=npm run build
+RAILPACK_START_CMD=npm run db:migrate && npm run start
+```
 
-## Deploy on Vercel
+Wichtig: Für `DATABASE_URL` die interne Dokploy-Connection-URL verwenden, nicht die externe DB-URL. Für Preview Deployments kann `APP_BASE_URL=https://${{DOKPLOY_DEPLOY_URL}}` gesetzt werden.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`RAILPACK_START_CMD` führt die Drizzle-Migrationen aus und startet danach den Next-Standalone-Server. Die Migrationen sind idempotent und können bei Container-Neustarts erneut laufen.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Nicht setzen: `NEXT_PUBLIC_DATABASE_URL`. Secrets dürfen nie ein `NEXT_PUBLIC_` Prefix bekommen.
+
+## Produktionscheck
+
+```bash
+npm run lint
+npm run build
+```
+
+Nach dem ersten Dokploy-Deploy pruefen:
+
+- `/api/health` liefert `ok: true`
+- Logs zeigen `Database migrations completed.`
+- Domain und HTTPS sind aktiv
+- `APP_BASE_URL` zeigt auf genau diese Domain
+- Dashboard ist mit `ADMIN_PASSWORD` geschützt

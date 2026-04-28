@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { qrCodes } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(
   _req: Request,
@@ -20,8 +21,7 @@ export async function GET(
     return new NextResponse("QR-Code nicht gefunden", { status: 404 });
   }
 
-  // fire-and-forget Counter — kein await, blockt Redirect nicht
-  void db
+  await db
     .update(qrCodes)
     .set({
       scanCount: sql`${qrCodes.scanCount} + 1`,

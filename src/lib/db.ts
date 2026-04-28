@@ -15,10 +15,14 @@ function getClient(): DbClient {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
-      "DATABASE_URL ist nicht gesetzt. Setze sie in deiner .env oder Dokploy-Service-Config.",
+      "DATABASE_URL ist nicht gesetzt. Setze sie in deiner .env oder als Dokploy-Service-Variable.",
     );
   }
-  const client = postgres(url, { max: 10, prepare: false });
+  const max = Number.parseInt(process.env.DB_POOL_MAX ?? "5", 10);
+  const client = postgres(url, {
+    max: Number.isFinite(max) && max > 0 ? max : 5,
+    prepare: false,
+  });
   if (process.env.NODE_ENV !== "production") globalForDb.pgClient = client;
   return client;
 }

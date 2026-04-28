@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Pencil, Save, Trash2, ExternalLink } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { Copy, ExternalLink, Pencil, Save, Trash2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { authorizedFetch } from "@/lib/client-auth";
+import { parseHttpUrl } from "@/lib/validation";
 
 export function DashboardRow({
   code,
@@ -15,6 +17,7 @@ export function DashboardRow({
   initialTitle,
   scanCount,
   createdAt,
+  lastScanAt,
   shortUrl,
 }: {
   code: string;
@@ -22,6 +25,7 @@ export function DashboardRow({
   initialTitle: string | null;
   scanCount: number;
   createdAt: string;
+  lastScanAt: string | null;
   shortUrl: string;
 }) {
   const router = useRouter();
@@ -31,22 +35,33 @@ export function DashboardRow({
   const [saving, setSaving] = useState(false);
 
   async function save() {
+    const parsedTarget = parseHttpUrl(targetUrl);
+    if (!parsedTarget) {
+      toast.error("Bitte gib eine gültige http(s)-URL ein.");
+      return;
+    }
+
     setSaving(true);
     try {
-      const res = await fetch(`/api/qr/${code}`, {
+      const res = await authorizedFetch(`/api/qr/${code}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetUrl, title: title || null }),
+        body: JSON.stringify({
+          targetUrl: parsedTarget,
+          title: title || null,
+        }),
       });
+
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Speichern fehlgeschlagen");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Speichern fehlgeschlagen");
       }
-      toast.success("Gespeichert");
+
+      toast.success("Gespeichert.");
       setEditing(false);
       router.refresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Fehler");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Fehler");
     } finally {
       setSaving(false);
     }
@@ -56,65 +71,75 @@ export function DashboardRow({
     if (!confirm("QR-Code wirklich löschen? Bestehende Scans laufen ins Leere.")) {
       return;
     }
-    const res = await fetch(`/api/qr/${code}`, { method: "DELETE" });
+
+    const res = await authorizedFetch(`/api/qr/${code}`, { method: "DELETE" });
     if (res.ok) {
-      toast.success("Gelöscht");
+      toast.success("Gelöscht.");
       router.refresh();
     } else {
-      toast.error("Löschen fehlgeschlagen");
+      toast.error("Loeschen fehlgeschlagen.");
     }
   }
 
+  async function copy(value: string) {
+    await navigator.clipboard.writeText(value);
+    toast.success("Kopiert.");
+  }
+
   return (
-    <Card className="border-border/60 bg-card/40 p-5 backdrop-blur">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <Card className="border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-gradient-to-br from-fuchsia-500/20 via-violet-500/20 to-cyan-400/20 px-2 py-0.5 font-mono text-xs text-violet-300">
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
               {code}
-            </span>
-            {initialTitle && !editing && (
-              <span className="font-medium">{initialTitle}</span>
-            )}
+            </code>
+            <h2 className="truncate text-base font-semibold">
+              {initialTitle || "Unbenannter Code"}
+            </h2>
             <span className="text-xs text-muted-foreground">
-              {scanCount} Scan{scanCount === 1 ? "" : "s"} ·{" "}
-              {new Date(createdAt).toLocaleDateString("de-DE")}
+              {scanCount} Scan{scanCount === 1 ? "" : "s"}
             </span>
           </div>
 
           {!editing ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <a
-                href={shortUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 break-all font-mono text-sm text-violet-300 hover:underline"
-              >
-                {shortUrl} <ExternalLink className="size-3" />
-              </a>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => {
-                  navigator.clipboard.writeText(shortUrl);
-                  toast.success("Kopiert");
-                }}
-              >
-                <Copy className="size-3.5" />
-              </Button>
-              <span className="text-muted-foreground">→</span>
-              <span className="break-all text-sm text-muted-foreground">
-                {initialTargetUrl}
-              </span>
+            <div className="mt-3 space-y-2 text-sm">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <a
+                  href={shortUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="min-w-0 break-all font-mono text-primary hover:underline"
+                >
+                  {shortUrl}
+                </a>
+                <ExternalLink className="size-3.5 text-muted-foreground" />
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="Kurz-URL kopieren"
+                  onClick={() => void copy(shortUrl)}
+                >
+                  <Copy className="size-3.5" />
+                </Button>
+              </div>
+              <p className="break-all text-muted-foreground">
+                Ziel: {initialTargetUrl}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Erstellt {new Date(createdAt).toLocaleDateString("de-DE")}
+                {lastScanAt
+                  ? ` · letzter Scan ${new Date(lastScanAt).toLocaleDateString(
+                      "de-DE",
+                    )}`
+                  : ""}
+              </p>
             </div>
           ) : (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label className="text-xs">Bezeichnung</Label>
-                <Input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Ziel-URL</Label>
@@ -129,19 +154,32 @@ export function DashboardRow({
 
         <div className="flex shrink-0 gap-2">
           {editing ? (
-            <Button onClick={save} disabled={saving} size="sm">
-              <Save className="size-4" /> Speichern
-            </Button>
+            <>
+              <Button onClick={save} disabled={saving} size="sm">
+                <Save className="size-4" />
+                Speichern
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Bearbeitung abbrechen"
+                onClick={() => setEditing(false)}
+              >
+                <X className="size-4" />
+              </Button>
+            </>
           ) : (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setEditing(true)}
-            >
-              <Pencil className="size-4" /> Bearbeiten
+            <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+              <Pencil className="size-4" />
+              Bearbeiten
             </Button>
           )}
-          <Button variant="ghost" size="icon" onClick={remove}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="QR-Code löschen"
+            onClick={() => void remove()}
+          >
             <Trash2 className="size-4 text-destructive" />
           </Button>
         </div>

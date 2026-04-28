@@ -1,11 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Download, Link2, Image as ImageIcon, Wand2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  Download,
+  Image as ImageIcon,
+  Link2,
+  Wand2,
+  X,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -14,48 +24,56 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
-import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { authorizedFetch } from "@/lib/client-auth";
+import { parseHttpUrl } from "@/lib/validation";
 import { QrPreview, downloadQr, type QrOptions } from "@/components/qr-preview";
 
-type DotType = "rounded" | "dots" | "classy" | "classy-rounded" | "square" | "extra-rounded";
+type DotType =
+  | "rounded"
+  | "dots"
+  | "classy"
+  | "classy-rounded"
+  | "square"
+  | "extra-rounded";
 type CornerSquareType = "dot" | "square" | "extra-rounded";
 
 const PRESETS: Record<string, { from: string; to: string; bg: string }> = {
-  "Violett-Cyan": { from: "#8b5cf6", to: "#22d3ee", bg: "#ffffff" },
-  "Pink-Orange": { from: "#ec4899", to: "#f97316", bg: "#ffffff" },
-  Mitternacht: { from: "#0f172a", to: "#1e293b", bg: "#ffffff" },
-  Gold: { from: "#f59e0b", to: "#d97706", bg: "#0f172a" },
-  Schwarz: { from: "#000000", to: "#000000", bg: "#ffffff" },
+  Wald: { from: "#047857", to: "#0891b2", bg: "#ffffff" },
+  Koralle: { from: "#e11d48", to: "#f59e0b", bg: "#ffffff" },
+  Tinte: { from: "#111827", to: "#2563eb", bg: "#ffffff" },
+  Moos: { from: "#365314", to: "#65a30d", bg: "#f8fafc" },
+  Mono: { from: "#020617", to: "#020617", bg: "#ffffff" },
 };
 
 export function QrCreator() {
   const [tab, setTab] = useState<"static" | "dynamic">("static");
-
-  // gemeinsame Style-Optionen
-  const [preset, setPreset] = useState<keyof typeof PRESETS>("Violett-Cyan");
+  const [preset, setPreset] = useState<keyof typeof PRESETS>("Wald");
   const [dotType, setDotType] = useState<DotType>("rounded");
-  const [cornerType, setCornerType] = useState<CornerSquareType>("extra-rounded");
+  const [cornerType, setCornerType] =
+    useState<CornerSquareType>("extra-rounded");
   const [logo, setLogo] = useState<string | null>(null);
   const [transparent, setTransparent] = useState(false);
-
-  // Statisch
   const [staticData, setStaticData] = useState("https://example.com");
-
-  // Dynamisch
   const [dynUrl, setDynUrl] = useState("https://example.com");
   const [dynTitle, setDynTitle] = useState("");
   const [dynLoading, setDynLoading] = useState(false);
-  const [dynResult, setDynResult] = useState<{ shortUrl: string; code: string } | null>(null);
+  const [dynResult, setDynResult] = useState<{
+    shortUrl: string;
+    code: string;
+  } | null>(null);
 
-  const data = tab === "static" ? staticData : dynResult?.shortUrl ?? "Dynamisches Ziel — bitte erst speichern";
+  const qrData =
+    tab === "static"
+      ? staticData.trim() || "https://example.com"
+      : dynResult?.shortUrl ?? (dynUrl.trim() || "https://example.com");
+  const canDownload = tab === "static" ? Boolean(staticData.trim()) : !!dynResult;
 
   const options: QrOptions = useMemo(() => {
     const p = PRESETS[preset];
     return {
       type: "svg",
-      data: data || " ",
+      data: qrData,
       margin: 8,
       qrOptions: { errorCorrectionLevel: logo ? "H" : "M" },
       backgroundOptions: { color: transparent ? "transparent" : p.bg },
@@ -79,180 +97,203 @@ export function QrCreator() {
         imageSize: 0.32,
       },
     };
-  }, [data, preset, dotType, cornerType, logo, transparent]);
+  }, [cornerType, dotType, logo, preset, qrData, transparent]);
 
   function onLogoUpload(file: File | undefined) {
     if (!file) return;
     if (file.size > 1024 * 1024) {
-      toast.error("Logo zu groß (max. 1 MB)");
+      toast.error("Logo ist zu gross. Maximal 1 MB.");
       return;
     }
+
     const reader = new FileReader();
     reader.onload = () => setLogo(reader.result as string);
     reader.readAsDataURL(file);
   }
 
   async function createDynamic() {
+    const parsedTarget = parseHttpUrl(dynUrl);
+    if (!parsedTarget) {
+      toast.error("Bitte gib eine gültige http(s)-URL ein.");
+      return;
+    }
+
     setDynLoading(true);
     try {
-      const res = await fetch("/api/qr", {
+      const res = await authorizedFetch("/api/qr", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetUrl: dynUrl, title: dynTitle || null }),
+        body: JSON.stringify({
+          targetUrl: parsedTarget,
+          title: dynTitle || null,
+        }),
       });
+
       if (!res.ok) {
         const msg = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(msg.error ?? "Fehler beim Erstellen");
+        throw new Error(
+          res.status === 401
+            ? "Admin-Passwort erforderlich."
+            : msg.error ?? "Fehler beim Erstellen.",
+        );
       }
+
       const json = (await res.json()) as { code: string; shortUrl: string };
       setDynResult(json);
-      toast.success("Dynamischer Code erstellt — Ziel jederzeit änderbar");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unbekannter Fehler");
+      toast.success("Dynamischer QR-Code erstellt.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unbekannter Fehler");
     } finally {
       setDynLoading(false);
     }
   }
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
-      {/* Vorschau */}
-      <Card className="relative flex min-h-[28rem] flex-col items-center justify-center overflow-hidden border-border/60 bg-card/40 p-6 backdrop-blur">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_30%_20%,rgba(139,92,246,0.18),transparent_60%),radial-gradient(circle_at_70%_80%,rgba(34,211,238,0.18),transparent_60%)]"
-        />
-        <div className="grid place-items-center rounded-2xl bg-white p-5 shadow-2xl shadow-violet-500/10">
-          <QrPreview options={options} size={320} />
-        </div>
-        <div className="mt-6 flex gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => downloadQr(options, "png")}
-          >
-            <Download className="size-4" /> PNG
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => downloadQr(options, "svg")}
-          >
-            <Download className="size-4" /> SVG
-          </Button>
-        </div>
-        <p className="mt-4 max-w-md text-center text-xs text-muted-foreground">
-          Tipp: Teste deinen Code mit dem Handy bevor du ihn druckst — vor allem
-          mit Logo und auf farbigem Hintergrund.
-        </p>
-      </Card>
+  async function copyShortUrl() {
+    if (!dynResult) return;
+    await navigator.clipboard.writeText(dynResult.shortUrl);
+    toast.success("Kurz-URL kopiert.");
+  }
 
-      {/* Steuerung */}
-      <Card className="border-border/60 bg-card/60 p-6 backdrop-blur">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+  function download(format: "png" | "svg") {
+    if (!canDownload) {
+      toast.error("Speichere den dynamischen Code zuerst.");
+      return;
+    }
+    void downloadQr(options, format);
+  }
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:items-start">
+      <Card className="order-2 border-border bg-card p-4 shadow-sm lg:order-1 sm:p-5">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="static">Statisch</TabsTrigger>
             <TabsTrigger value="dynamic">Dynamisch</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="static" className="mt-6 space-y-4">
+          <TabsContent value="static" className="mt-5 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="data">URL oder Text</Label>
               <Input
                 id="data"
                 value={staticData}
-                onChange={(e) => setStaticData(e.target.value)}
+                onChange={(event) => setStaticData(event.target.value)}
                 placeholder="https://..."
               />
-              <p className="text-xs text-muted-foreground">
-                Inhalt wird direkt im QR-Code gespeichert und ist nicht
-                änderbar.
-              </p>
             </div>
           </TabsContent>
 
-          <TabsContent value="dynamic" className="mt-6 space-y-4">
+          <TabsContent value="dynamic" className="mt-5 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="dyn-url">Ziel-URL</Label>
               <Input
                 id="dyn-url"
                 value={dynUrl}
-                onChange={(e) => setDynUrl(e.target.value)}
+                onChange={(event) => {
+                  setDynUrl(event.target.value);
+                  setDynResult(null);
+                }}
                 placeholder="https://..."
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="dyn-title">Bezeichnung (optional)</Label>
+              <Label htmlFor="dyn-title">Bezeichnung</Label>
               <Input
                 id="dyn-title"
                 value={dynTitle}
-                onChange={(e) => setDynTitle(e.target.value)}
-                placeholder="z. B. Speisekarte Frühling"
+                onChange={(event) => setDynTitle(event.target.value)}
+                placeholder="Speisekarte, Flyer, Kampagne"
               />
             </div>
             <Button
-              className="w-full"
+              className="h-10 w-full"
               onClick={createDynamic}
-              disabled={dynLoading || !dynUrl}
+              disabled={dynLoading || !dynUrl.trim()}
             >
-              <Wand2 className="size-4" />
-              {dynLoading ? "Erstelle..." : "Dynamischen Code erstellen"}
+              {dynResult ? (
+                <CheckCircle2 className="size-4" />
+              ) : (
+                <Wand2 className="size-4" />
+              )}
+              {dynLoading
+                ? "Erstelle..."
+                : dynResult
+                  ? "Kurz-URL erstellt"
+                  : "Dynamischen Code speichern"}
             </Button>
             {dynResult && (
-              <div className="rounded-lg border border-border/60 bg-background/40 p-3 text-xs">
+              <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
-                  <Link2 className="size-3.5" /> Kurz-URL
+                  <Link2 className="size-4" />
+                  Kurz-URL
                 </div>
-                <div className="mt-1 break-all font-mono">
-                  {dynResult.shortUrl}
+                <div className="mt-2 flex items-center gap-2">
+                  <code className="min-w-0 flex-1 break-all rounded-md bg-background px-2 py-1 text-xs">
+                    {dynResult.shortUrl}
+                  </code>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    aria-label="Kurz-URL kopieren"
+                    onClick={copyShortUrl}
+                  >
+                    <Copy className="size-4" />
+                  </Button>
                 </div>
               </div>
             )}
-            <p className="text-xs text-muted-foreground">
-              Der QR-Code zeigt auf eine kurze URL — das echte Ziel kannst du
-              später im Dashboard ändern.
-            </p>
           </TabsContent>
         </Tabs>
 
-        <Separator className="my-6" />
+        <Separator className="my-5" />
 
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold">Stil</h3>
-
+        <div className="space-y-5">
           <div className="space-y-2">
             <Label>Farbschema</Label>
             <div className="grid grid-cols-5 gap-2">
-              {(Object.keys(PRESETS) as Array<keyof typeof PRESETS>).map((k) => {
-                const p = PRESETS[k];
-                const active = preset === k;
-                return (
-                  <button
-                    key={k}
-                    onClick={() => setPreset(k)}
-                    title={k}
-                    className={`h-10 rounded-lg border transition-all ${
-                      active
-                        ? "ring-2 ring-ring ring-offset-2 ring-offset-background"
-                        : "border-border/60 hover:border-border"
-                    }`}
-                    style={{
-                      background: `linear-gradient(135deg, ${p.from}, ${p.to})`,
-                    }}
-                  />
-                );
-              })}
+              {(Object.keys(PRESETS) as Array<keyof typeof PRESETS>).map(
+                (name) => {
+                  const colors = PRESETS[name];
+                  const active = preset === name;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      aria-label={`Farbschema ${name}`}
+                      aria-pressed={active}
+                      title={name}
+                      onClick={() => setPreset(name)}
+                      className={`h-10 rounded-lg border transition ${
+                        active
+                          ? "border-foreground ring-2 ring-ring/30"
+                          : "border-border hover:border-foreground/40"
+                      }`}
+                      style={{
+                        background: `linear-gradient(135deg, ${colors.from}, ${colors.to})`,
+                      }}
+                    />
+                  );
+                },
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Punkte</Label>
-              <Select value={dotType} onValueChange={(v) => setDotType(v as DotType)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={dotType}
+                onValueChange={(value) => setDotType(value as DotType)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="rounded">Abgerundet</SelectItem>
                   <SelectItem value="dots">Punkte</SelectItem>
                   <SelectItem value="classy">Classy</SelectItem>
-                  <SelectItem value="classy-rounded">Classy gerundet</SelectItem>
+                  <SelectItem value="classy-rounded">Classy rund</SelectItem>
                   <SelectItem value="square">Quadrate</SelectItem>
                   <SelectItem value="extra-rounded">Extra rund</SelectItem>
                 </SelectContent>
@@ -262,9 +303,13 @@ export function QrCreator() {
               <Label>Ecken</Label>
               <Select
                 value={cornerType}
-                onValueChange={(v) => setCornerType(v as CornerSquareType)}
+                onValueChange={(value) =>
+                  setCornerType(value as CornerSquareType)
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="extra-rounded">Extra rund</SelectItem>
                   <SelectItem value="square">Quadratisch</SelectItem>
@@ -274,7 +319,7 @@ export function QrCreator() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/30 px-3 py-2">
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2">
             <Label htmlFor="transparent" className="text-sm">
               Transparenter Hintergrund
             </Label>
@@ -286,21 +331,62 @@ export function QrCreator() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="logo">Logo (PNG/SVG, optional)</Label>
+            <Label htmlFor="logo">Logo</Label>
             <div className="flex items-center gap-2">
               <Input
                 id="logo"
                 type="file"
                 accept="image/png,image/svg+xml,image/jpeg"
-                onChange={(e) => onLogoUpload(e.target.files?.[0])}
+                onChange={(event) => onLogoUpload(event.target.files?.[0])}
               />
               {logo && (
-                <Button variant="ghost" size="icon" onClick={() => setLogo(null)}>
-                  <ImageIcon className="size-4" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Logo entfernen"
+                  onClick={() => setLogo(null)}
+                >
+                  <X className="size-4" />
                 </Button>
               )}
             </div>
           </div>
+        </div>
+      </Card>
+
+      <Card className="order-1 border-border bg-card p-4 shadow-sm lg:sticky lg:top-20 lg:order-2">
+        <div className="grid place-items-center rounded-lg bg-white p-4 shadow-inner">
+          <QrPreview options={options} size={240} />
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-10"
+            onClick={() => download("png")}
+            disabled={!canDownload}
+          >
+            <Download className="size-4" />
+            PNG
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-10"
+            onClick={() => download("svg")}
+            disabled={!canDownload}
+          >
+            <Download className="size-4" />
+            SVG
+          </Button>
+        </div>
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+          <ImageIcon className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Bei dynamischen Codes wird erst nach dem Speichern die Kurz-URL in
+            den QR-Code geschrieben.
+          </span>
         </div>
       </Card>
     </div>
