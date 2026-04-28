@@ -63,3 +63,28 @@ export async function downloadQr(
   });
   await qr.download({ name, extension: format });
 }
+
+export async function getSvgString(
+  options: QrOptions,
+  size = 256,
+): Promise<string> {
+  const { default: QRCodeStylingCtor } = await import("qr-code-styling");
+  const qr = new QRCodeStylingCtor({
+    width: size,
+    height: size,
+    ...options,
+  });
+  return new Promise((resolve) => {
+    qr.getRawData("svg").then((data) => {
+      if (data instanceof Blob) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve((reader.result as string) || "");
+        };
+        reader.readAsText(data);
+      } else {
+        resolve("");
+      }
+    });
+  });
+}

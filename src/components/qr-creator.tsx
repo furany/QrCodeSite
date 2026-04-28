@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Code,
   Copy,
   Download,
   Image as ImageIcon,
@@ -34,7 +35,7 @@ import {
   parseCode,
   parseHttpUrl,
 } from "@/lib/validation";
-import { QrPreview, downloadQr, type QrOptions } from "@/components/qr-preview";
+import { QrPreview, downloadQr, getSvgString, type QrOptions } from "@/components/qr-preview";
 import {
   generateQrData,
   validateQrData,
@@ -378,6 +379,24 @@ export function QrCreator() {
     if (!dynResult) return;
     await navigator.clipboard.writeText(dynResult.shortUrl);
     toast.success("Kurz-URL kopiert.");
+  }
+
+  async function copySvgEmbed() {
+    if (!canDownload) {
+      toast.error("Speichere den dynamischen Code zuerst.");
+      return;
+    }
+    try {
+      const svg = await getSvgString(options, 256);
+      if (!svg) {
+        toast.error("SVG konnte nicht generiert werden.");
+        return;
+      }
+      await navigator.clipboard.writeText(svg);
+      toast.success("SVG-Code kopiert.");
+    } catch (error) {
+      toast.error("Fehler beim Kopieren des SVG-Codes.");
+    }
   }
 
   function download(format: "png" | "svg") {
@@ -1142,6 +1161,18 @@ export function QrCreator() {
               </Button>
             </div>
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full mt-4 h-8"
+            onClick={copySvgEmbed}
+            disabled={!canDownload}
+            title="SVG-Code zum Einbetten kopieren"
+          >
+            <Code className="size-4" />
+            SVG Code
+          </Button>
+
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             <ImageIcon className="mt-0.5 size-4 shrink-0" />
             <span>
