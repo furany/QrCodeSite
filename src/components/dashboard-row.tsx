@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   Archive,
+  BarChart3,
   Copy,
   ExternalLink,
   Pencil,
@@ -10,6 +11,7 @@ import {
   Save,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { DashboardItem } from "@/components/dashboard-list";
@@ -193,6 +195,14 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
             </>
           ) : (
             <>
+              <Button
+                variant="secondary"
+                size="sm"
+                render={<Link href={`/dashboard/analytics/${item.code}`} />}
+              >
+                <BarChart3 className="size-4" />
+                Analytics
+              </Button>
               <Button
                 variant="secondary"
                 size="sm"
