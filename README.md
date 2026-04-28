@@ -31,6 +31,9 @@ Auf der Dokploy-App:
 DATABASE_URL=postgresql://USER:PASSWORD@INTERNAL_HOST:5432/DATABASE
 APP_BASE_URL=https://deine-domain.de
 ADMIN_PASSWORD=ein-langes-passwort
+AUTH_SECRET=ein-langer-zufaelliger-session-secret
+REGISTRATION_ENABLED=false
+INVITE_CODE=optional-fuer-neue-user
 DB_POOL_MAX=5
 RAILPACK_BUILD_CMD=npm run build
 RAILPACK_START_CMD=npm run db:migrate && npm run start
@@ -38,7 +41,11 @@ RAILPACK_START_CMD=npm run db:migrate && npm run start
 
 Wichtig: Für `DATABASE_URL` die interne Dokploy-Connection-URL verwenden, nicht die externe DB-URL. Für Preview Deployments kann `APP_BASE_URL=https://${{DOKPLOY_DEPLOY_URL}}` gesetzt werden.
 
+Der Build kopiert `.next/static` und `public` automatisch in den Standalone-Ordner. Ohne diesen Schritt lädt Dokploy zwar HTML, aber keine CSS-/JS-Assets.
+
 `RAILPACK_START_CMD` führt die Drizzle-Migrationen aus und startet danach den Next-Standalone-Server. Die Migrationen sind idempotent und können bei Container-Neustarts erneut laufen.
+
+Das erste registrierte Konto wird automatisch Admin. Danach sollte Registrierung geschlossen bleiben (`REGISTRATION_ENABLED=false`) und neue Nutzer sollten nur per `INVITE_CODE` angelegt werden.
 
 Nicht setzen: `NEXT_PUBLIC_DATABASE_URL`. Secrets dürfen nie ein `NEXT_PUBLIC_` Prefix bekommen.
 

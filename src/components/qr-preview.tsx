@@ -49,12 +49,17 @@ export function QrPreview({
   );
 }
 
-export async function downloadQr(options: QrOptions, format: "png" | "svg") {
+export async function downloadQr(
+  options: QrOptions,
+  format: "png" | "svg",
+  size = 1024,
+  name = "qr-code",
+) {
   const { default: QRCodeStylingCtor } = await import("qr-code-styling");
   const qr = new QRCodeStylingCtor({
-    width: 1024,
-    height: 1024,
+    width: size,
+    height: size,
     ...options,
   });
-  await qr.download({ name: "qr-code", extension: format });
+  await qr.download({ name, extension: format });
 }

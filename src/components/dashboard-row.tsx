@@ -1,9 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, ExternalLink, Pencil, Save, Trash2, X } from "lucide-react";
+import {
+  Archive,
+  Copy,
+  ExternalLink,
+  Pencil,
+  RotateCcw,
+  Save,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import type { DashboardItem } from "@/components/dashboard-list";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,28 +20,15 @@ import { Label } from "@/components/ui/label";
 import { authorizedFetch } from "@/lib/client-auth";
 import { parseHttpUrl } from "@/lib/validation";
 
-export function DashboardRow({
-  code,
-  initialTargetUrl,
-  initialTitle,
-  scanCount,
-  createdAt,
-  lastScanAt,
-  shortUrl,
-}: {
-  code: string;
-  initialTargetUrl: string;
-  initialTitle: string | null;
-  scanCount: number;
-  createdAt: string;
-  lastScanAt: string | null;
-  shortUrl: string;
-}) {
+export function DashboardRow({ item }: { item: DashboardItem }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
-  const [targetUrl, setTargetUrl] = useState(initialTargetUrl);
-  const [title, setTitle] = useState(initialTitle ?? "");
+  const [targetUrl, setTargetUrl] = useState(item.targetUrl);
+  const [title, setTitle] = useState(item.title ?? "");
+  const [expiresAt, setExpiresAt] = useState(toDatetimeLocal(item.expiresAt));
   const [saving, setSaving] = useState(false);
+  const isArchived = Boolean(item.archivedAt);
+  const isExpired = item.isExpired;
 
   async function save() {
     const parsedTarget = parseHttpUrl(targetUrl);
@@ -43,12 +39,13 @@ export function DashboardRow({
 
     setSaving(true);
     try {
-      const res = await authorizedFetch(`/api/qr/${code}`, {
+      const res = await authorizedFetch(`/api/qr/${item.code}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           targetUrl: parsedTarget,
           title: title || null,
+          expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
         }),
       });
 
@@ -67,17 +64,40 @@ export function DashboardRow({
     }
   }
 
-  async function remove() {
-    if (!confirm("QR-Code wirklich löschen? Bestehende Scans laufen ins Leere.")) {
-      return;
-    }
+  async function setArchived(archived: boolean) {
+    const res = await authorizedFetch(`/api/qr/${item.code}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ archived }),
+    });
 
-    const res = await authorizedFetch(`/api/qr/${code}`, { method: "DELETE" });
     if (res.ok) {
-      toast.success("Gelöscht.");
+      toast.success(archived ? "Archiviert." : "Wiederhergestellt.");
       router.refresh();
     } else {
-      toast.error("Loeschen fehlgeschlagen.");
+      toast.error("Aktion fehlgeschlagen.");
+    }
+  }
+
+  async function duplicate() {
+    const res = await authorizedFetch("/api/qr", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        targetUrl: item.targetUrl,
+        title: item.title ? `${item.title} Kopie` : "Kopie",
+        expiresAt: item.expiresAt,
+      }),
+    });
+
+    if (res.ok) {
+      const body = (await res.json()) as { shortUrl: string };
+      await navigator.clipboard.writeText(body.shortUrl);
+      toast.success("Kopie erstellt und Kurz-URL kopiert.");
+      router.refresh();
+    } else {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      toast.error(body.error ?? "Duplizieren fehlgeschlagen.");
     }
   }
 
@@ -92,13 +112,14 @@ export function DashboardRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <code className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-              {code}
+              {item.code}
             </code>
             <h2 className="truncate text-base font-semibold">
-              {initialTitle || "Unbenannter Code"}
+              {item.title || "Unbenannter Code"}
             </h2>
+            <StatusBadge archived={isArchived} expired={isExpired} />
             <span className="text-xs text-muted-foreground">
-              {scanCount} Scan{scanCount === 1 ? "" : "s"}
+              {item.scanCount} Scan{item.scanCount === 1 ? "" : "s"}
             </span>
           </div>
 
@@ -106,53 +127,55 @@ export function DashboardRow({
             <div className="mt-3 space-y-2 text-sm">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <a
-                  href={shortUrl}
+                  href={item.shortUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="min-w-0 break-all font-mono text-primary hover:underline"
                 >
-                  {shortUrl}
+                  {item.shortUrl}
                 </a>
                 <ExternalLink className="size-3.5 text-muted-foreground" />
                 <Button
                   size="icon-sm"
                   variant="ghost"
                   aria-label="Kurz-URL kopieren"
-                  onClick={() => void copy(shortUrl)}
+                  onClick={() => void copy(item.shortUrl)}
                 >
                   <Copy className="size-3.5" />
                 </Button>
               </div>
               <p className="break-all text-muted-foreground">
-                Ziel: {initialTargetUrl}
+                Ziel: {item.targetUrl}
               </p>
               <p className="text-xs text-muted-foreground">
-                Erstellt {new Date(createdAt).toLocaleDateString("de-DE")}
-                {lastScanAt
-                  ? ` · letzter Scan ${new Date(lastScanAt).toLocaleDateString(
-                      "de-DE",
-                    )}`
-                  : ""}
+                Erstellt {formatDate(item.createdAt)}
+                {item.lastScanAt ? ` · letzter Scan ${formatDate(item.lastScanAt)}` : ""}
+                {item.expiresAt ? ` · gültig bis ${formatDate(item.expiresAt)}` : ""}
               </p>
             </div>
           ) : (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Bezeichnung</Label>
+            <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1.2fr_220px]">
+              <Field label="Bezeichnung">
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Ziel-URL</Label>
+              </Field>
+              <Field label="Ziel-URL">
                 <Input
                   value={targetUrl}
                   onChange={(e) => setTargetUrl(e.target.value)}
                 />
-              </div>
+              </Field>
+              <Field label="Gültig bis">
+                <Input
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={(e) => setExpiresAt(e.target.value)}
+                />
+              </Field>
             </div>
           )}
         </div>
 
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           {editing ? (
             <>
               <Button onClick={save} disabled={saving} size="sm">
@@ -169,21 +192,93 @@ export function DashboardRow({
               </Button>
             </>
           ) : (
-            <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
-              <Pencil className="size-4" />
-              Bearbeiten
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setEditing(true)}
+              >
+                <Pencil className="size-4" />
+                Bearbeiten
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void duplicate()}>
+                <Copy className="size-4" />
+                Duplizieren
+              </Button>
+            </>
+          )}
+          {isArchived ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void setArchived(false)}
+            >
+              <RotateCcw className="size-4" />
+              Restore
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void setArchived(true)}
+            >
+              <Archive className="size-4" />
+              Archivieren
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="QR-Code löschen"
-            onClick={() => void remove()}
-          >
-            <Trash2 className="size-4 text-destructive" />
-          </Button>
         </div>
       </div>
     </Card>
   );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function StatusBadge({
+  archived,
+  expired,
+}: {
+  archived: boolean;
+  expired: boolean;
+}) {
+  const label = archived ? "Archiv" : expired ? "Abgelaufen" : "Aktiv";
+  const className = archived
+    ? "bg-muted text-muted-foreground"
+    : expired
+      ? "bg-amber-100 text-amber-900"
+      : "bg-primary/10 text-primary";
+
+  return (
+    <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${className}`}>
+      {label}
+    </span>
+  );
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function toDatetimeLocal(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }

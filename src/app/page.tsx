@@ -12,8 +12,35 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 export default function Home() {
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Qrft",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    description:
+      "QR-Code Generator für statische QR-Codes, dynamische Kurzlinks, Logo-Designs und Scan-Statistiken.",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "EUR",
+    },
+    mainEntity: FAQS.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: item.answer,
+      },
+    })),
+  };
+
   return (
     <div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <section className="border-b border-border bg-muted/30">
         <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
           <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
@@ -84,6 +111,27 @@ export default function Home() {
           />
         </div>
       </section>
+
+      <section className="border-t border-border bg-card">
+        <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
+          <div className="mb-6 max-w-2xl">
+            <p className="text-sm font-medium text-primary">FAQ</p>
+            <h2 className="mt-2 text-3xl font-semibold">
+              Häufige Fragen zu QR-Codes
+            </h2>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {FAQS.map((item) => (
+              <Card key={item.question} className="border-border p-5 shadow-sm">
+                <h3 className="font-semibold">{item.question}</h3>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {item.answer}
+                </p>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -107,3 +155,26 @@ function Feature({
     </Card>
   );
 }
+
+const FAQS = [
+  {
+    question: "Was ist der Unterschied zwischen statischen und dynamischen QR-Codes?",
+    answer:
+      "Statische QR-Codes enthalten den finalen Inhalt direkt im Code. Dynamische QR-Codes zeigen auf einen Kurzlink, dessen Ziel später geändert werden kann.",
+  },
+  {
+    question: "Kann ich einen QR-Code mit Logo erstellen?",
+    answer:
+      "Ja. Du kannst ein PNG, JPG oder SVG als Logo hochladen. Für Druckdaten empfiehlt sich danach ein Testscan mit dem finalen Material.",
+  },
+  {
+    question: "Welche Exportformate unterstützt Qrft?",
+    answer:
+      "Qrft exportiert QR-Codes als PNG oder SVG. Für Druck kannst du hohe PNG-Auflösungen oder den SVG-Export nutzen.",
+  },
+  {
+    question: "Werden Scan-Daten an externe Tracker gesendet?",
+    answer:
+      "Nein. Dynamische Scan-Zähler werden direkt in deiner eigenen Postgres-Datenbank gespeichert.",
+  },
+];

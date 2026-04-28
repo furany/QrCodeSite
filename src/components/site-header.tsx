@@ -1,4 +1,4 @@
-import { LayoutDashboard, Plus, QrCode } from "lucide-react";
+import { LayoutDashboard, LogIn, Plus, QrCode, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
@@ -16,6 +16,14 @@ export function SiteHeader() {
           <Button variant="ghost" size="sm" render={<Link href="/dashboard" />}>
             <LayoutDashboard className="size-4" />
             <span className="hidden sm:inline">Dashboard</span>
+          </Button>
+          <Button variant="ghost" size="sm" render={<Link href="/login" />}>
+            <LogIn className="size-4" />
+            <span className="hidden sm:inline">Login</span>
+          </Button>
+          <Button variant="ghost" size="sm" render={<Link href="/register" />}>
+            <UserPlus className="size-4" />
+            <span className="hidden sm:inline">Registrieren</span>
           </Button>
           <Button size="sm" render={<Link href="/create" />}>
             <Plus className="size-4" />

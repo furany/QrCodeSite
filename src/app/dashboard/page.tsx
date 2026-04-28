@@ -1,9 +1,12 @@
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
-import { BarChart3, Plus } from "lucide-react";
+import { redirect } from "next/navigation";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DashboardRow } from "@/components/dashboard-row";
+import { DashboardList, type DashboardItem } from "@/components/dashboard-list";
+import { LogoutButton } from "@/components/logout-button";
+import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getBaseUrl } from "@/lib/env";
 import { qrCodes, type QrCode } from "@/lib/schema";
@@ -17,27 +20,52 @@ export const metadata = {
 };
 
 export default async function DashboardPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login?next=/dashboard");
+
   let rows: QrCode[] = [];
   let dbError: string | null = null;
 
   try {
-    rows = await db.select().from(qrCodes).orderBy(desc(qrCodes.createdAt));
+    rows =
+      user.role === "admin"
+        ? await db.select().from(qrCodes).orderBy(desc(qrCodes.createdAt))
+        : await db
+            .select()
+            .from(qrCodes)
+            .where(eq(qrCodes.userId, user.id))
+            .orderBy(desc(qrCodes.createdAt));
   } catch (error) {
     dbError =
       error instanceof Error ? error.message : "Datenbank nicht erreichbar";
   }
 
   const base = getBaseUrl();
+  const now = new Date();
+  const items: DashboardItem[] = rows.map((row) => ({
+    code: row.code,
+    targetUrl: row.targetUrl,
+    title: row.title,
+    scanCount: row.scanCount,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    lastScanAt: row.lastScanAt?.toISOString() ?? null,
+    expiresAt: row.expiresAt?.toISOString() ?? null,
+    archivedAt: row.archivedAt?.toISOString() ?? null,
+    isExpired: row.expiresAt ? row.expiresAt <= now : false,
+    shortUrl: `${base}/r/${row.code}`,
+  }));
+  const activeRows = rows.filter((row) => !row.archivedAt);
   const totalScans = rows.reduce((sum, row) => sum + row.scanCount, 0);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-medium text-primary">Qrft Admin</p>
-          <h1 className="text-3xl font-semibold sm:text-4xl">
-            Dashboard
-          </h1>
+          <p className="text-sm font-medium text-primary">
+            {user.name || user.email}
+          </p>
+          <h1 className="text-3xl font-semibold sm:text-4xl">Dashboard</h1>
           <p className="mt-2 max-w-2xl text-muted-foreground">
             Dynamische Codes, Ziel-URLs und Scan-Zahlen an einem Ort.
           </p>
@@ -46,22 +74,25 @@ export default async function DashboardPage() {
           <Plus className="size-4" />
           Neuer Code
         </Button>
+        <LogoutButton />
       </div>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <Metric label="Codes" value={rows.length.toString()} />
-        <Metric label="Scans" value={totalScans.toString()} />
+        <Metric label="Aktive Codes" value={activeRows.length.toString()} />
+        <Metric label="Scans gesamt" value={totalScans.toString()} />
         <Metric
-          label="Letzter Code"
+          label="Letzter Scan"
           value={
-            rows[0]?.createdAt
-              ? rows[0].createdAt.toLocaleDateString("de-DE")
-              : "-"
+            latestScan(rows)?.toLocaleDateString("de-DE", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+            }) ?? "-"
           }
         />
       </div>
 
-      {dbError && (
+      {dbError ? (
         <Card className="mb-5 border-destructive/30 bg-destructive/10 p-4 text-sm">
           <p className="font-medium text-destructive">
             Datenbank-Verbindung fehlgeschlagen
@@ -72,33 +103,8 @@ export default async function DashboardPage() {
             erfolgreich war.
           </p>
         </Card>
-      )}
-
-      {rows.length === 0 && !dbError ? (
-        <Card className="grid min-h-56 place-items-center border-dashed p-8 text-center">
-          <div>
-            <BarChart3 className="mx-auto size-8 text-muted-foreground" />
-            <p className="mt-3 font-medium">Noch keine dynamischen Codes</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Erstelle den ersten Code und die Scans erscheinen hier.
-            </p>
-          </div>
-        </Card>
       ) : (
-        <div className="space-y-3">
-          {rows.map((row) => (
-            <DashboardRow
-              key={row.code}
-              code={row.code}
-              initialTargetUrl={row.targetUrl}
-              initialTitle={row.title}
-              scanCount={row.scanCount}
-              createdAt={row.createdAt.toISOString()}
-              lastScanAt={row.lastScanAt?.toISOString() ?? null}
-              shortUrl={`${base}/r/${row.code}`}
-            />
-          ))}
-        </div>
+        <DashboardList items={items} />
       )}
     </div>
   );
@@ -113,4 +119,12 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-2xl font-semibold">{value}</p>
     </Card>
   );
+}
+
+function latestScan(rows: QrCode[]) {
+  const scans = rows
+    .map((row) => row.lastScanAt)
+    .filter((date): date is Date => Boolean(date))
+    .sort((a, b) => b.getTime() - a.getTime());
+  return scans[0];
 }
