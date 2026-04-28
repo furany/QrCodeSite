@@ -77,9 +77,17 @@ export default async function DashboardPage() {
         <LogoutButton />
       </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      <div className="mb-5 grid gap-3 sm:grid-cols-4">
         <Metric label="Aktive Codes" value={activeRows.length.toString()} />
         <Metric label="Scans gesamt" value={totalScans.toString()} />
+        <Metric
+          label="Durchschn. pro Code"
+          value={
+            activeRows.length > 0
+              ? Math.round(totalScans / activeRows.length).toString()
+              : "0"
+          }
+        />
         <Metric
           label="Letzter Scan"
           value={
