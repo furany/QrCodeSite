@@ -64,7 +64,7 @@ const PRESETS: Record<string, { from: string; to: string; bg: string }> = {
 const EXPORT_SIZES = ["512", "1024", "2048", "4096"] as const;
 
 export function QrCreator() {
-  const [tab, setTab] = useState<"static" | "dynamic">("static");
+  const [tab, setTab] = useState<"static" | "dynamic" | "batch">("static");
   const [qrType, setQrType] = useState<QrType>("url");
   const [preset, setPreset] = useState<keyof typeof PRESETS>("Wald");
   const [dotType, setDotType] = useState<DotType>("rounded");
@@ -103,6 +103,11 @@ export function QrCreator() {
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateDesc, setTemplateDesc] = useState("");
+  const [batchItems, setBatchItems] = useState<
+    Array<{ id: string; name: string; url: string }>
+  >([]);
+  const [batchCsvText, setBatchCsvText] = useState("");
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const normalizedDynamicUrl = parseHttpUrl(dynUrl);
   const customCodeValue = customCode ? parseCode(customCode) : null;
@@ -135,6 +140,9 @@ export function QrCreator() {
     if (tab === "static") {
       if (qrType === "url") return Boolean(staticData.trim());
       return !typeValidationError;
+    }
+    if (tab === "batch") {
+      return false;
     }
     return !!dynResult;
   }, [tab, qrType, staticData, typeValidationError, dynResult]);
@@ -236,6 +244,117 @@ export function QrCreator() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Fehler beim Löschen.");
     }
+  }
+
+  function parseBatchCsv(csv: string) {
+    const lines = csv.trim().split("\n").filter((line) => line.trim());
+    const items: Array<{ id: string; name: string; url: string }> = [];
+
+    lines.forEach((line, idx) => {
+      const parts = line.split(",").map((p) => p.trim());
+      if (parts.length >= 2) {
+        const name = parts[0] || `Code ${idx + 1}`;
+        const url = parts[1];
+        if (url) {
+          items.push({
+            id: crypto.randomUUID(),
+            name,
+            url,
+          });
+        }
+      }
+    });
+
+    return items;
+  }
+
+  function handleBatchCsvChange(csv: string) {
+    setBatchCsvText(csv);
+    const items = parseBatchCsv(csv);
+    setBatchItems(items);
+  }
+
+  async function createBatchQrCodes() {
+    if (batchItems.length === 0) {
+      toast.error("Bitte füge mindestens einen QR-Code hinzu.");
+      return;
+    }
+
+    const invalidItems = batchItems.filter(
+      (item) => !parseHttpUrl(item.url)
+    );
+    if (invalidItems.length > 0) {
+      toast.error(
+        `${invalidItems.length} URL(s) sind ungültig. Überprüfe das CSV-Format.`
+      );
+      return;
+    }
+
+    setBatchLoading(true);
+    const created: Array<{ name: string; code: string; shortUrl: string }> = [];
+
+    try {
+      for (const item of batchItems) {
+        const res = await authorizedFetch("/api/qr", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            targetUrl: parseHttpUrl(item.url),
+            title: item.name,
+            code: null,
+            expiresAt: null,
+          }),
+        });
+
+        if (res.ok) {
+          const json = (await res.json()) as {
+            code: string;
+            shortUrl: string;
+          };
+          created.push({
+            name: item.name,
+            code: json.code,
+            shortUrl: json.shortUrl,
+          });
+        }
+      }
+
+      if (created.length > 0) {
+        toast.success(`${created.length} QR-Codes erstellt.`);
+        downloadBatchCsv(created);
+        setBatchCsvText("");
+        setBatchItems([]);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Fehler beim Erstellen."
+      );
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  function downloadBatchCsv(
+    created: Array<{ name: string; code: string; shortUrl: string }>
+  ) {
+    const headers = ["Name", "Code", "Short URL", "Full URL"].join(",");
+    const rows = created.map((item) =>
+      [
+        `"${item.name.replace(/"/g, '""')}"`,
+        item.code,
+        item.shortUrl,
+        `${typeof window !== "undefined" ? window.location.origin : ""}${item.shortUrl}`,
+      ].join(",")
+    );
+    const csv = [headers, ...rows].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = `batch-qr-codes-${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   const options: QrOptions = useMemo(() => {
@@ -417,9 +536,10 @@ export function QrCreator() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:items-start">
         <Card className="order-2 border-border bg-card p-4 shadow-sm lg:order-1 sm:p-5">
           <Tabs value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="static">Statisch</TabsTrigger>
               <TabsTrigger value="dynamic">Dynamisch</TabsTrigger>
+              <TabsTrigger value="batch">Batch</TabsTrigger>
             </TabsList>
 
             <TabsContent value="static" className="mt-5 space-y-4">
@@ -890,6 +1010,68 @@ export function QrCreator() {
                   </div>
                 </div>
               )}
+            </TabsContent>
+
+            <TabsContent value="batch" className="mt-5 space-y-4">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                <p className="font-medium mb-2">CSV-Format:</p>
+                <code className="text-xs bg-background px-2 py-1 rounded block overflow-auto max-h-20">
+                  Name, URL{"\n"}Google, https://google.com{"\n"}GitHub, https://github.com
+                </code>
+                <p className="mt-2 text-xs">
+                  Eine Zeile pro QR-Code. Name ist optional (wird sonst auto-generiert).
+                </p>
+              </div>
+
+              <Field label="CSV-Daten eingeben oder hochladen" htmlFor="batch-csv">
+                <textarea
+                  id="batch-csv"
+                  value={batchCsvText}
+                  onChange={(e) => handleBatchCsvChange(e.target.value)}
+                  placeholder="Name, URL&#10;Google, https://google.com&#10;GitHub, https://github.com"
+                  className="min-h-32 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </Field>
+
+              {batchItems.length > 0 && (
+                <div className="space-y-2">
+                  <Label>{batchItems.length} QR-Codes zum Erstellen</Label>
+                  <div className="max-h-64 overflow-auto rounded-lg border border-border">
+                    {batchItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-2 border-b border-border last:border-0 p-2 text-sm"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{item.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {item.url}
+                          </p>
+                        </div>
+                        <CheckCircle2 className="size-4 text-green-600 shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <Button
+                className="w-full"
+                onClick={createBatchQrCodes}
+                disabled={batchLoading || batchItems.length === 0}
+              >
+                {batchLoading ? (
+                  <>
+                    <Wand2 className="size-4 animate-spin" />
+                    Erstelle {batchItems.length} Codes...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="size-4" />
+                    {batchItems.length} Codes erstellen
+                  </>
+                )}
+              </Button>
             </TabsContent>
           </Tabs>
 
