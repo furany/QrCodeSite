@@ -57,6 +57,9 @@ export default async function DashboardPage() {
   }));
   const activeRows = rows.filter((row) => !row.archivedAt);
   const totalScans = rows.reduce((sum, row) => sum + row.scanCount, 0);
+  const popularCodes = [...activeRows]
+    .sort((a, b) => b.scanCount - a.scanCount)
+    .slice(0, 5);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:py-10">
@@ -122,7 +125,31 @@ export default async function DashboardPage() {
           </p>
         </Card>
       ) : (
-        <DashboardList items={items} />
+        <>
+          {popularCodes.length > 0 && (
+            <Card className="mb-5 border-border bg-card p-4 shadow-sm">
+              <h2 className="text-lg font-semibold mb-3">Populär</h2>
+              <div className="space-y-2">
+                {popularCodes.map((code) => (
+                  <div
+                    key={code.code}
+                    className="flex items-center justify-between rounded-lg border border-border bg-muted/40 p-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">
+                        {code.title || code.code}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {code.scanCount} Scans
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+          <DashboardList items={items} />
+        </>
       )}
     </div>
   );
