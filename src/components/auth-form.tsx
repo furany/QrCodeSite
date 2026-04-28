@@ -189,7 +189,12 @@ export function AuthForm({
       <Button
         type="submit"
         className="w-full shadow-glow"
-        disabled={loading}
+        disabled={
+          loading ||
+          !email ||
+          !password ||
+          (mode === "register" && !passwordStrength.isValid)
+        }
         size="lg"
       >
         {loading ? (

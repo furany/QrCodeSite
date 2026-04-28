@@ -10,41 +10,49 @@ export function validatePasswordStrength(
   const feedback: string[] = [];
   let score = 0;
 
+  // Minimum length check
   if (!password || password.length < 8) {
     feedback.push("Mindestens 8 Zeichen erforderlich");
     return { score: 0, isValid: false, feedback };
   }
 
-  // Length
+  // Length scoring
   if (password.length >= 8) score++;
   if (password.length >= 12) score++;
   if (password.length >= 16) score++;
 
-  // Character variety
+  // Character variety validation
   const hasLower = /[a-z]/.test(password);
   const hasUpper = /[A-Z]/.test(password);
   const hasNumber = /\d/.test(password);
   const hasSpecial = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
 
-  if (!hasLower) {
-    feedback.push("Enthält keine Kleinbuchstaben");
-  } else {
+  // Check each requirement
+  if (hasLower) {
     score++;
+  } else {
+    feedback.push("Enthält keine Kleinbuchstaben");
   }
 
-  if (!hasUpper) {
+  if (hasUpper) {
+    score++;
+  } else {
     feedback.push("Enthält keine Großbuchstaben");
   }
 
-  if (!hasNumber) {
+  if (hasNumber) {
+    score++;
+  } else {
     feedback.push("Enthält keine Zahlen");
   }
 
-  if (!hasSpecial) {
+  if (hasSpecial) {
+    score++;
+  } else {
     feedback.push("Enthält keine Sonderzeichen");
   }
 
-  // Common patterns
+  // Check common patterns
   const commonPatterns = [
     /^123/,
     /password/i,
@@ -63,7 +71,15 @@ export function validatePasswordStrength(
     score = Math.max(0, score - 1);
   }
 
-  const isValid = feedback.length === 0;
+  // Password is valid only if all requirements are met
+  const isValid =
+    hasLower &&
+    hasUpper &&
+    hasNumber &&
+    hasSpecial &&
+    password.length >= 8 &&
+    !commonPatterns.some((p) => p.test(password));
+
   return {
     score: Math.min(4, Math.max(0, score - 1)),
     isValid,
