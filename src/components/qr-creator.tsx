@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Link2,
   Printer,
+  Save,
   Wand2,
   X,
 } from "lucide-react";
@@ -86,6 +87,21 @@ export function QrCreator() {
     shortUrl: string;
     code: string;
   } | null>(null);
+  const [templates, setTemplates] = useState<
+    Array<{
+      id: string;
+      name: string;
+      description?: string;
+      preset: string;
+      dotType: string;
+      cornerType: string;
+      transparent: boolean;
+      printMode: boolean;
+    }>
+  >([]);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDesc, setTemplateDesc] = useState("");
 
   const normalizedDynamicUrl = parseHttpUrl(dynUrl);
   const customCodeValue = customCode ? parseCode(customCode) : null;
@@ -123,6 +139,10 @@ export function QrCreator() {
   }, [tab, qrType, staticData, typeValidationError, dynResult]);
 
   useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  useEffect(() => {
     if (!customCodeValue) return;
 
     const timeout = window.setTimeout(async () => {
@@ -142,6 +162,80 @@ export function QrCreator() {
 
     return () => window.clearTimeout(timeout);
   }, [customCode, customCodeValue]);
+
+  async function loadTemplates() {
+    try {
+      const res = await authorizedFetch("/api/templates");
+      if (res.ok) {
+        const data = (await res.json()) as typeof templates;
+        setTemplates(data);
+      }
+    } catch {
+      // Silently fail if user is not authenticated
+    }
+  }
+
+  async function saveTemplate() {
+    if (!templateName.trim()) {
+      toast.error("Vorlagen-Name erforderlich.");
+      return;
+    }
+
+    try {
+      const res = await authorizedFetch("/api/templates", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: templateName,
+          description: templateDesc,
+          preset,
+          dotType,
+          cornerType,
+          transparent,
+          printMode,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Fehler beim Speichern der Vorlage.");
+      }
+
+      const template = (await res.json()) as (typeof templates)[0];
+      setTemplates([...templates, template]);
+      setShowSaveTemplate(false);
+      setTemplateName("");
+      setTemplateDesc("");
+      toast.success("Vorlage gespeichert.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Speichern.");
+    }
+  }
+
+  function loadTemplate(template: (typeof templates)[0]) {
+    setPreset(template.preset as keyof typeof PRESETS);
+    setDotType(template.dotType as DotType);
+    setCornerType(template.cornerType as CornerSquareType);
+    setTransparent(template.transparent);
+    setPrintMode(template.printMode);
+    toast.success(`Vorlage "${template.name}" geladen.`);
+  }
+
+  async function deleteTemplate(templateId: string) {
+    try {
+      const res = await authorizedFetch(`/api/templates?id=${templateId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        throw new Error("Fehler beim Löschen der Vorlage.");
+      }
+
+      setTemplates(templates.filter((t) => t.id !== templateId));
+      toast.success("Vorlage gelöscht.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Löschen.");
+    }
+  }
 
   const options: QrOptions = useMemo(() => {
     const p = PRESETS[preset];
@@ -505,9 +599,11 @@ export function QrCreator() {
                   <Field label="Sicherheit" htmlFor="wifi-security">
                     <Select
                       value={(qrTypeData.security as string) || "WPA"}
-                      onValueChange={(value) =>
-                        setQrTypeData({ ...qrTypeData, security: value })
-                      }
+                      onValueChange={(value) => {
+                        if (value) {
+                          setQrTypeData({ ...qrTypeData, security: value });
+                        }
+                      }}
                     >
                       <SelectTrigger id="wifi-security">
                         <SelectValue />
@@ -781,6 +877,50 @@ export function QrCreator() {
           <Separator className="my-5" />
 
           <div className="space-y-5">
+            {templates.length > 0 && (
+              <div className="space-y-2">
+                <Label>Gespeicherte Vorlagen</Label>
+                <div className="grid gap-2">
+                  {templates.map((template) => (
+                    <div
+                      key={template.id}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 p-2 text-sm"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{template.name}</p>
+                        {template.description && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {template.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 text-xs"
+                          onClick={() => loadTemplate(template)}
+                        >
+                          Laden
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => deleteTemplate(template.id)}
+                          title="Vorlage löschen"
+                        >
+                          <X className="size-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>Farbschema</Label>
               <div className="grid grid-cols-5 gap-2">
@@ -889,6 +1029,60 @@ export function QrCreator() {
                 )}
               </div>
             </Field>
+
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => setShowSaveTemplate(true)}
+            >
+              <Save className="size-4" />
+              Design als Vorlage speichern
+            </Button>
+
+            {showSaveTemplate && (
+              <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
+                <h3 className="text-sm font-semibold">Vorlage speichern</h3>
+                <Field label="Vorlagen-Name" htmlFor="template-name">
+                  <Input
+                    id="template-name"
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    placeholder="z.B. Corporate Design"
+                    autoFocus
+                  />
+                </Field>
+                <Field label="Beschreibung" htmlFor="template-desc">
+                  <Input
+                    id="template-desc"
+                    value={templateDesc}
+                    onChange={(e) => setTemplateDesc(e.target.value)}
+                    placeholder="Optionale Notiz"
+                  />
+                </Field>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    className="flex-1"
+                    onClick={saveTemplate}
+                  >
+                    Speichern
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowSaveTemplate(false);
+                      setTemplateName("");
+                      setTemplateDesc("");
+                    }}
+                  >
+                    Abbrechen
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {designWarnings.length > 0 && (
               <div className="space-y-2 rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-950">
