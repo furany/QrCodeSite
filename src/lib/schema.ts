@@ -76,5 +76,27 @@ export type QrCode = typeof qrCodes.$inferSelect;
 export type NewQrCode = typeof qrCodes.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    keyHash: text("key_hash").notNull(),
+    keyPrefix: text("key_prefix").notNull(), // First 8 chars for display
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("api_keys_user_idx").on(t.userId),
+    index("api_keys_key_hash_idx").on(t.keyHash),
+  ]
+);
+
 export type QrStyleTemplate = typeof qrStyleTemplates.$inferSelect;
 export type NewQrStyleTemplate = typeof qrStyleTemplates.$inferInsert;
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;

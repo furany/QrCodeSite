@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DashboardList, type DashboardItem } from "@/components/dashboard-list";
@@ -70,11 +70,21 @@ export default async function DashboardPage() {
             Dynamische Codes, Ziel-URLs und Scan-Zahlen an einem Ort.
           </p>
         </div>
-        <Button className="h-10" render={<Link href="/create" />}>
-          <Plus className="size-4" />
-          Neuer Code
-        </Button>
-        <LogoutButton />
+        <div className="flex gap-2">
+          <Button className="h-10" render={<Link href="/create" />}>
+            <Plus className="size-4" />
+            Neuer Code
+          </Button>
+          <Button
+            variant="secondary"
+            className="h-10"
+            render={<Link href="/dashboard/settings" />}
+          >
+            <Settings className="size-4" />
+            Einstellungen
+          </Button>
+          <LogoutButton />
+        </div>
       </div>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-4">
