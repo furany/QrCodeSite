@@ -34,6 +34,12 @@ import {
   parseHttpUrl,
 } from "@/lib/validation";
 import { QrPreview, downloadQr, type QrOptions } from "@/components/qr-preview";
+import {
+  generateQrData,
+  validateQrData,
+  QR_TYPES,
+  type QrType,
+} from "@/lib/qr-types";
 
 type DotType =
   | "rounded"
@@ -57,6 +63,7 @@ const EXPORT_SIZES = ["512", "1024", "2048", "4096"] as const;
 
 export function QrCreator() {
   const [tab, setTab] = useState<"static" | "dynamic">("static");
+  const [qrType, setQrType] = useState<QrType>("url");
   const [preset, setPreset] = useState<keyof typeof PRESETS>("Wald");
   const [dotType, setDotType] = useState<DotType>("rounded");
   const [cornerType, setCornerType] =
@@ -67,6 +74,7 @@ export function QrCreator() {
   const [exportSize, setExportSize] =
     useState<(typeof EXPORT_SIZES)[number]>("1024");
   const [staticData, setStaticData] = useState("https://example.com");
+  const [qrTypeData, setQrTypeData] = useState<Record<string, string>>({});
   const [dynUrl, setDynUrl] = useState("https://example.com");
   const [dynTitle, setDynTitle] = useState("");
   const [customCode, setCustomCode] = useState("");
@@ -91,11 +99,28 @@ export function QrCreator() {
     : !customCodeValue
       ? "invalid"
       : asyncCodeStatus;
-  const qrData =
-    tab === "static"
-      ? staticData.trim() || "https://example.com"
-      : dynResult?.shortUrl ?? normalizedDynamicUrl ?? "https://example.com";
-  const canDownload = tab === "static" ? Boolean(staticData.trim()) : !!dynResult;
+  const qrData = useMemo(() => {
+    if (tab === "dynamic") {
+      return dynResult?.shortUrl ?? normalizedDynamicUrl ?? "https://example.com";
+    }
+    if (qrType === "url") {
+      return staticData.trim() || "https://example.com";
+    }
+    return generateQrData(qrType, qrTypeData) || "https://example.com";
+  }, [tab, qrType, staticData, qrTypeData, dynResult?.shortUrl, normalizedDynamicUrl]);
+
+  const typeValidationError = useMemo(() => {
+    if (tab !== "static" || qrType === "url") return null;
+    return validateQrData(qrType, qrTypeData);
+  }, [tab, qrType, qrTypeData]);
+
+  const canDownload = useMemo(() => {
+    if (tab === "static") {
+      if (qrType === "url") return Boolean(staticData.trim());
+      return !typeValidationError;
+    }
+    return !!dynResult;
+  }, [tab, qrType, staticData, typeValidationError, dynResult]);
 
   useEffect(() => {
     if (!customCodeValue) return;
@@ -285,15 +310,348 @@ export function QrCreator() {
             </TabsList>
 
             <TabsContent value="static" className="mt-5 space-y-4">
-              <Field label="URL oder Text" htmlFor="data">
-                <Input
-                  id="data"
-                  value={staticData}
-                  onBlur={normalizeStaticContent}
-                  onChange={(event) => setStaticData(event.target.value)}
-                  placeholder="https://..."
-                />
+              <Field label="QR-Code Typ">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                  {(Object.keys(QR_TYPES) as QrType[]).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setQrType(type);
+                        setQrTypeData({});
+                      }}
+                      className={`rounded-lg border-2 p-3 text-center text-sm transition ${
+                        qrType === type
+                          ? "border-ring bg-primary/10 text-primary font-semibold"
+                          : "border-border hover:border-foreground/30"
+                      }`}
+                      title={QR_TYPES[type].description}
+                    >
+                      <div className="text-lg mb-1">{QR_TYPES[type].icon}</div>
+                      <div className="text-xs">{QR_TYPES[type].label}</div>
+                    </button>
+                  ))}
+                </div>
               </Field>
+
+              {qrType === "url" && (
+                <Field label="URL oder Text" htmlFor="data">
+                  <Input
+                    id="data"
+                    value={staticData}
+                    onBlur={normalizeStaticContent}
+                    onChange={(event) => setStaticData(event.target.value)}
+                    placeholder="https://..."
+                  />
+                </Field>
+              )}
+
+              {qrType === "tel" && (
+                <Field label="Telefonnummer" htmlFor="tel-field">
+                  <Input
+                    id="tel-field"
+                    type="tel"
+                    value={qrTypeData.phone || ""}
+                    onChange={(e) =>
+                      setQrTypeData({ ...qrTypeData, phone: e.target.value })
+                    }
+                    placeholder="+49123456789"
+                  />
+                </Field>
+              )}
+
+              {qrType === "sms" && (
+                <>
+                  <Field label="Telefonnummer" htmlFor="sms-phone">
+                    <Input
+                      id="sms-phone"
+                      type="tel"
+                      value={qrTypeData.phone || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, phone: e.target.value })
+                      }
+                      placeholder="+49123456789"
+                    />
+                  </Field>
+                  <Field label="Nachricht" htmlFor="sms-message">
+                    <Input
+                      id="sms-message"
+                      value={qrTypeData.message || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, message: e.target.value })
+                      }
+                      placeholder="Optionale Nachricht"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {qrType === "email" && (
+                <>
+                  <Field label="E-Mail-Adresse" htmlFor="email-field">
+                    <Input
+                      id="email-field"
+                      type="email"
+                      value={qrTypeData.email || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, email: e.target.value })
+                      }
+                      placeholder="contact@example.com"
+                    />
+                  </Field>
+                  <Field label="Betreff" htmlFor="email-subject">
+                    <Input
+                      id="email-subject"
+                      value={qrTypeData.subject || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, subject: e.target.value })
+                      }
+                      placeholder="Optionaler Betreff"
+                    />
+                  </Field>
+                  <Field label="Nachricht" htmlFor="email-body">
+                    <Input
+                      id="email-body"
+                      value={qrTypeData.body || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, body: e.target.value })
+                      }
+                      placeholder="Optionale Nachricht"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {qrType === "vcard" && (
+                <>
+                  <Field label="Name" htmlFor="vcard-name">
+                    <Input
+                      id="vcard-name"
+                      value={qrTypeData.name || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, name: e.target.value })
+                      }
+                      placeholder="Max Mustermann"
+                    />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="E-Mail" htmlFor="vcard-email">
+                      <Input
+                        id="vcard-email"
+                        type="email"
+                        value={qrTypeData.email || ""}
+                        onChange={(e) =>
+                          setQrTypeData({
+                            ...qrTypeData,
+                            email: e.target.value,
+                          })
+                        }
+                        placeholder="max@example.com"
+                      />
+                    </Field>
+                    <Field label="Telefon" htmlFor="vcard-phone">
+                      <Input
+                        id="vcard-phone"
+                        type="tel"
+                        value={qrTypeData.phone || ""}
+                        onChange={(e) =>
+                          setQrTypeData({
+                            ...qrTypeData,
+                            phone: e.target.value,
+                          })
+                        }
+                        placeholder="+49123456789"
+                      />
+                    </Field>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Organisation" htmlFor="vcard-org">
+                      <Input
+                        id="vcard-org"
+                        value={qrTypeData.org || ""}
+                        onChange={(e) =>
+                          setQrTypeData({ ...qrTypeData, org: e.target.value })
+                        }
+                        placeholder="Firmenname"
+                      />
+                    </Field>
+                    <Field label="Website" htmlFor="vcard-url">
+                      <Input
+                        id="vcard-url"
+                        type="url"
+                        value={qrTypeData.url || ""}
+                        onChange={(e) =>
+                          setQrTypeData({ ...qrTypeData, url: e.target.value })
+                        }
+                        placeholder="https://example.com"
+                      />
+                    </Field>
+                  </div>
+                </>
+              )}
+
+              {qrType === "wifi" && (
+                <>
+                  <Field label="SSID (Netzwerkname)" htmlFor="wifi-ssid">
+                    <Input
+                      id="wifi-ssid"
+                      value={qrTypeData.ssid || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, ssid: e.target.value })
+                      }
+                      placeholder="MyNetwork"
+                    />
+                  </Field>
+                  <Field label="Sicherheit" htmlFor="wifi-security">
+                    <Select
+                      value={(qrTypeData.security as string) || "WPA"}
+                      onValueChange={(value) =>
+                        setQrTypeData({ ...qrTypeData, security: value })
+                      }
+                    >
+                      <SelectTrigger id="wifi-security">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="WPA">WPA/WPA2</SelectItem>
+                        <SelectItem value="WEP">WEP</SelectItem>
+                        <SelectItem value="open">Offen (kein Passwort)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  {qrTypeData.security !== "open" && (
+                    <Field label="Passwort" htmlFor="wifi-password">
+                      <Input
+                        id="wifi-password"
+                        type="password"
+                        value={qrTypeData.password || ""}
+                        onChange={(e) =>
+                          setQrTypeData({
+                            ...qrTypeData,
+                            password: e.target.value,
+                          })
+                        }
+                        placeholder="Netzwerkpasswort"
+                      />
+                    </Field>
+                  )}
+                  <ToggleRow
+                    id="wifi-hidden"
+                    label="Verstecktes Netzwerk"
+                    checked={qrTypeData.hidden === "true"}
+                    onCheckedChange={(checked) =>
+                      setQrTypeData({
+                        ...qrTypeData,
+                        hidden: checked ? "true" : "false",
+                      })
+                    }
+                  />
+                </>
+              )}
+
+              {qrType === "event" && (
+                <>
+                  <Field label="Veranstaltungstitel" htmlFor="event-title">
+                    <Input
+                      id="event-title"
+                      value={qrTypeData.title || ""}
+                      onChange={(e) =>
+                        setQrTypeData({ ...qrTypeData, title: e.target.value })
+                      }
+                      placeholder="Konferenz 2026"
+                    />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Startdatum" htmlFor="event-start-date">
+                      <Input
+                        id="event-start-date"
+                        type="date"
+                        value={qrTypeData.startDate || ""}
+                        onChange={(e) =>
+                          setQrTypeData({
+                            ...qrTypeData,
+                            startDate: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="Startuhrzeit" htmlFor="event-start-time">
+                      <Input
+                        id="event-start-time"
+                        type="time"
+                        value={qrTypeData.startTime || ""}
+                        onChange={(e) =>
+                          setQrTypeData({
+                            ...qrTypeData,
+                            startTime: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Enddatum" htmlFor="event-end-date">
+                      <Input
+                        id="event-end-date"
+                        type="date"
+                        value={qrTypeData.endDate || ""}
+                        onChange={(e) =>
+                          setQrTypeData({
+                            ...qrTypeData,
+                            endDate: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                    <Field label="Enduhrzeit" htmlFor="event-end-time">
+                      <Input
+                        id="event-end-time"
+                        type="time"
+                        value={qrTypeData.endTime || ""}
+                        onChange={(e) =>
+                          setQrTypeData({
+                            ...qrTypeData,
+                            endTime: e.target.value,
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Ort" htmlFor="event-location">
+                    <Input
+                      id="event-location"
+                      value={qrTypeData.location || ""}
+                      onChange={(e) =>
+                        setQrTypeData({
+                          ...qrTypeData,
+                          location: e.target.value,
+                        })
+                      }
+                      placeholder="Berlin Convention Center"
+                    />
+                  </Field>
+                  <Field label="Beschreibung" htmlFor="event-description">
+                    <Input
+                      id="event-description"
+                      value={qrTypeData.description || ""}
+                      onChange={(e) =>
+                        setQrTypeData({
+                          ...qrTypeData,
+                          description: e.target.value,
+                        })
+                      }
+                      placeholder="Weitere Details zur Veranstaltung"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {typeValidationError && (
+                <div className="flex gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                  <p>{typeValidationError}</p>
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="dynamic" className="mt-5 space-y-4">

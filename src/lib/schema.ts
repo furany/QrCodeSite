@@ -53,7 +53,28 @@ export const qrCodes = pgTable(
   ],
 );
 
+export const qrStyleTemplates = pgTable(
+  "qr_style_templates",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    preset: text("preset").notNull(), // "Wald", "Koralle", etc.
+    dotType: text("dot_type").notNull().default("rounded"),
+    cornerType: text("corner_type").notNull().default("extra-rounded"),
+    transparent: boolean("transparent").notNull().default(false),
+    printMode: boolean("print_mode").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("qr_templates_user_idx").on(t.userId)],
+);
+
 export type QrCode = typeof qrCodes.$inferSelect;
 export type NewQrCode = typeof qrCodes.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type QrStyleTemplate = typeof qrStyleTemplates.$inferSelect;
+export type NewQrStyleTemplate = typeof qrStyleTemplates.$inferInsert;
