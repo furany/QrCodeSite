@@ -98,5 +98,25 @@ export const apiKeys = pgTable(
 
 export type QrStyleTemplate = typeof qrStyleTemplates.$inferSelect;
 export type NewQrStyleTemplate = typeof qrStyleTemplates.$inferInsert;
+export const loginAttempts = pgTable(
+  "login_attempts",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    success: boolean("success").notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("login_attempts_email_idx").on(t.email),
+    index("login_attempts_created_at_idx").on(t.createdAt),
+  ]
+);
+
 export type ApiKey = typeof apiKeys.$inferSelect;
 export type NewApiKey = typeof apiKeys.$inferInsert;
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
+export type NewLoginAttempt = typeof loginAttempts.$inferInsert;

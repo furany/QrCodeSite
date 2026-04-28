@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Loader2, Mail, Lock, User } from "lucide-react";
+import { AlertCircle, Loader2, Mail, Lock, User, CheckCircle2 } from "lucide-react";
+import { validatePasswordStrength, passwordStrengthLabel } from "@/lib/password";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,11 @@ export function AuthForm({
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
 
+  const passwordStrength = useMemo(
+    () => validatePasswordStrength(password),
+    [password]
+  );
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -35,8 +41,11 @@ export function AuthForm({
         throw new Error("Bitte fülle alle Felder aus.");
       }
 
-      if (password.length < 8) {
-        throw new Error("Passwort muss mindestens 8 Zeichen lang sein.");
+      if (mode === "register" && !passwordStrength.isValid) {
+        throw new Error(
+          "Passwort erfüllt nicht die Anforderungen: " +
+            passwordStrength.feedback.join(", ")
+        );
       }
 
       const res = await fetch(`/api/auth/${mode}`, {
@@ -122,9 +131,43 @@ export function AuthForm({
           disabled={loading}
           required
         />
-        {mode === "register" && (
+        {mode === "register" && password && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all ${
+                    passwordStrength.score === 0
+                      ? "w-1/4 bg-red-600"
+                      : passwordStrength.score === 1
+                        ? "w-2/4 bg-orange-600"
+                        : passwordStrength.score === 2
+                          ? "w-3/4 bg-yellow-600"
+                          : "w-full bg-green-600"
+                  }`}
+                />
+              </div>
+              <span className="text-xs font-medium whitespace-nowrap">
+                {passwordStrengthLabel(passwordStrength.score)}
+              </span>
+            </div>
+            {passwordStrength.feedback.length > 0 ? (
+              <ul className="text-xs text-destructive space-y-1">
+                {passwordStrength.feedback.map((msg) => (
+                  <li key={msg}>• {msg}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-green-600">
+                <CheckCircle2 className="size-3" />
+                Passwort erfüllt alle Anforderungen
+              </div>
+            )}
+          </div>
+        )}
+        {mode === "register" && !password && (
           <p className="text-xs text-muted-foreground">
-            Mindestens 8 Zeichen, besser mehr für Sicherheit.
+            Mindestens 8 Zeichen mit Groß-/Kleinbuchstaben, Zahlen und Sonderzeichen.
           </p>
         )}
       </div>
