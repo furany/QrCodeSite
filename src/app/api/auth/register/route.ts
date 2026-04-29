@@ -83,19 +83,12 @@ export async function POST(req: Request) {
     );
   }
 
-  // Check if email already exists
-  // Use generic error to prevent email enumeration
   const existing = await findUserByEmail(email);
   if (existing) {
-    // Return same success message to prevent enumeration
-    return NextResponse.json({
-      user: {
-        id: existing.id,
-        email: existing.email,
-        name: existing.name,
-        role: existing.role,
-      },
-    });
+    return NextResponse.json(
+      { error: "Diese E-Mail ist bereits registriert. Bitte logge dich ein." },
+      { status: 409 },
+    );
   }
 
   try {
@@ -104,7 +97,7 @@ export async function POST(req: Request) {
       name,
       password,
     });
-    await createUserSession(user);
+    await createUserSession(user, req);
 
     return NextResponse.json({
       user: {

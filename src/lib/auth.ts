@@ -25,7 +25,7 @@ export async function getCurrentUser() {
   return rows[0] ?? null;
 }
 
-export async function createUserSession(user: User) {
+export async function createUserSession(user: User, req?: Request) {
   const token = signSessionToken({
     sub: user.id,
     email: user.email,
@@ -37,18 +37,18 @@ export async function createUserSession(user: User) {
   cookieStore.set(AUTH_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(req),
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
 }
 
-export async function clearUserSession() {
+export async function clearUserSession(req?: Request) {
   const cookieStore = await cookies();
   cookieStore.set(AUTH_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(req),
     path: "/",
     maxAge: 0,
   });
@@ -176,6 +176,40 @@ function getAuthSecret() {
     process.env.ADMIN_PASSWORD ??
     "dev-only-change-this-secret"
   );
+}
+
+function shouldUseSecureCookie(req?: Request) {
+  const protocol = requestProtocol(req);
+  if (protocol) return protocol === "https";
+
+  const configuredBaseUrl =
+    process.env.APP_BASE_URL ?? process.env.NEXT_PUBLIC_BASE_URL;
+  if (configuredBaseUrl) {
+    try {
+      return new URL(configuredBaseUrl).protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  return process.env.NODE_ENV === "production";
+}
+
+function requestProtocol(req?: Request) {
+  if (!req) return null;
+
+  const forwardedProto = req.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProto) return forwardedProto;
+
+  const forwarded = req.headers.get("forwarded");
+  const forwardedMatch = forwarded?.match(/(?:^|;|,\s*)proto=(https?)/i);
+  if (forwardedMatch?.[1]) return forwardedMatch[1].toLowerCase();
+
+  return new URL(req.url).protocol.replace(":", "").toLowerCase();
 }
 
 function base64Url(value: string) {

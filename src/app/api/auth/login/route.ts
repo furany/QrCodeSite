@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   }
 
   await recordLoginAttempt(email, true, req);
-  await createUserSession(user!);
+  await createUserSession(user!, req);
 
   return NextResponse.json({
     user: {
