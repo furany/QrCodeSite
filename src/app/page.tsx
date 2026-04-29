@@ -7,7 +7,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Zap,
-  Check,
 } from "lucide-react";
 import { QrCreator } from "@/components/qr-creator";
 import { Button } from "@/components/ui/button";

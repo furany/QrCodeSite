@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/auth";
 export async function GET() {
   const user = await getCurrentUser();
   if (!user?.id) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    return Response.json([]);
   }
 
   try {

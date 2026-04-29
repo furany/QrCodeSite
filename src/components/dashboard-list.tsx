@@ -203,7 +203,7 @@ export function DashboardList({ items }: { items: DashboardItem[] }) {
               key={item.code}
               className="flex items-start gap-2"
               onClick={(e) => {
-                if ((e.target as HTMLElement).tagName !== "INPUT") {
+                if (!isInteractiveTarget(e.target)) {
                   toggleSelect(item.code);
                 }
               }}
@@ -241,4 +241,14 @@ function compareItems(a: DashboardItem, b: DashboardItem, sort: SortMode) {
 
 function dateValue(value: string | null) {
   return value ? new Date(value).getTime() : 0;
+}
+
+function isInteractiveTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+
+  return Boolean(
+    target.closest(
+      "a,button,input,textarea,select,label,[role='button'],[data-slot='select-trigger']",
+    ),
+  );
 }

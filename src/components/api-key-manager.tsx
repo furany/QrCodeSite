@@ -89,7 +89,7 @@ export function ApiKeyManager() {
       } else {
         toast.error("Fehler beim Löschen.");
       }
-    } catch (error) {
+    } catch {
       toast.error("Fehler beim Löschen.");
     }
   }

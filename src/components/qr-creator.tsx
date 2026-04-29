@@ -52,6 +52,16 @@ type DotType =
   | "extra-rounded";
 type CornerSquareType = "dot" | "square" | "extra-rounded";
 type CodeStatus = "idle" | "checking" | "available" | "taken" | "invalid";
+type StyleTemplate = {
+  id: string;
+  name: string;
+  description?: string;
+  preset: string;
+  dotType: string;
+  cornerType: string;
+  transparent: boolean;
+  printMode: boolean;
+};
 
 const PRESETS: Record<string, { from: string; to: string; bg: string }> = {
   Wald: { from: "#047857", to: "#0891b2", bg: "#ffffff" },
@@ -62,6 +72,16 @@ const PRESETS: Record<string, { from: string; to: string; bg: string }> = {
 };
 
 const EXPORT_SIZES = ["512", "1024", "2048", "4096"] as const;
+
+async function fetchTemplates() {
+  try {
+    const res = await fetch("/api/templates");
+    if (!res.ok) return null;
+    return (await res.json()) as StyleTemplate[];
+  } catch {
+    return null;
+  }
+}
 
 export function QrCreator() {
   const [tab, setTab] = useState<"static" | "dynamic" | "batch">("static");
@@ -90,18 +110,7 @@ export function QrCreator() {
     shortUrl: string;
     code: string;
   } | null>(null);
-  const [templates, setTemplates] = useState<
-    Array<{
-      id: string;
-      name: string;
-      description?: string;
-      preset: string;
-      dotType: string;
-      cornerType: string;
-      transparent: boolean;
-      printMode: boolean;
-    }>
-  >([]);
+  const [templates, setTemplates] = useState<StyleTemplate[]>([]);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateDesc, setTemplateDesc] = useState("");
@@ -153,7 +162,17 @@ export function QrCreator() {
   }, [tab, qrType, staticData, typeValidationError, dynResult]);
 
   useEffect(() => {
-    loadTemplates();
+    let cancelled = false;
+
+    void fetchTemplates().then((data) => {
+      if (!cancelled && data) {
+        setTemplates(data);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -176,18 +195,6 @@ export function QrCreator() {
 
     return () => window.clearTimeout(timeout);
   }, [customCode, customCodeValue]);
-
-  async function loadTemplates() {
-    try {
-      const res = await authorizedFetch("/api/templates");
-      if (res.ok) {
-        const data = (await res.json()) as typeof templates;
-        setTemplates(data);
-      }
-    } catch {
-      // Silently fail if user is not authenticated
-    }
-  }
 
   async function saveTemplate() {
     if (!templateName.trim()) {
@@ -277,6 +284,28 @@ export function QrCreator() {
     setBatchCsvText(csv);
     const items = parseBatchCsv(csv);
     setBatchItems(items);
+  }
+
+  async function handleBatchFile(file: File | undefined) {
+    if (!file) return;
+    if (!/\.(csv|txt)$/i.test(file.name)) {
+      toast.error("Bitte lade eine CSV- oder TXT-Datei hoch.");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      toast.error("Die Batch-Datei darf maximal 1 MB groß sein.");
+      return;
+    }
+
+    const csv = await file.text();
+    handleBatchCsvChange(csv);
+    toast.success("CSV importiert.");
+  }
+
+  function insertBatchExample() {
+    handleBatchCsvChange(
+      "Name, URL\nGoogle, https://google.com\nGitHub, https://github.com",
+    );
   }
 
   async function createBatchQrCodes() {
@@ -544,7 +573,7 @@ export function QrCreator() {
       }
       await navigator.clipboard.writeText(svg);
       toast.success("SVG-Code kopiert.");
-    } catch (error) {
+    } catch {
       toast.error("Fehler beim Kopieren des SVG-Codes.");
     }
   }
@@ -1379,7 +1408,30 @@ export function QrCreator() {
                 </p>
               </div>
 
-              <Field label="CSV-Daten eingeben oder hochladen" htmlFor="batch-csv">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+                <Field label="CSV-Datei hochladen" htmlFor="batch-file">
+                  <Input
+                    id="batch-file"
+                    type="file"
+                    accept=".csv,text/csv,text/plain"
+                    onChange={(event) =>
+                      void handleBatchFile(event.target.files?.[0])
+                    }
+                  />
+                </Field>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={insertBatchExample}
+                  >
+                    Beispiel einfügen
+                  </Button>
+                </div>
+              </div>
+
+              <Field label="CSV-Daten" htmlFor="batch-csv">
                 <textarea
                   id="batch-csv"
                   value={batchCsvText}
