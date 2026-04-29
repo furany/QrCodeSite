@@ -1538,7 +1538,9 @@ export function QrCreator() {
                 <textarea
                   id="batch-csv"
                   value={batchCsvText}
-                  onChange={(e) => handleBatchCsvChange(e.target.value)}
+                  onInput={(event) =>
+                    handleBatchCsvChange(event.currentTarget.value)
+                  }
                   placeholder={"Name, URL\nGoogle, https://google.com\nGitHub, https://github.com"}
                   className="min-h-32 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
