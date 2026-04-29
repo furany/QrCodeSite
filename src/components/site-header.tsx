@@ -1,4 +1,6 @@
 import { LayoutDashboard, LogIn, Plus, QrCode, UserPlus } from "lucide-react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function SiteHeader() {
@@ -7,7 +9,7 @@ export async function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border/40 bg-background/60 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <a
+        <Link
           href="/"
           className="group flex items-center gap-2 font-semibold no-underline transition-opacity hover:opacity-80"
         >
@@ -15,52 +17,58 @@ export async function SiteHeader() {
             <QrCode className="size-5" />
           </span>
           <span className="hidden sm:inline text-lg">Qrft</span>
-        </a>
+        </Link>
 
         <nav className="flex items-center gap-1 sm:gap-2">
           {user ? (
             <>
-              <a
-                href="/dashboard"
-                className="group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent h-7 gap-1 px-2.5 text-[0.8rem] hidden sm:flex hover:bg-muted hover:text-foreground"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="hidden sm:flex"
+                render={<Link href="/dashboard" />}
               >
-                <LayoutDashboard className="size-3.5" />
+                <LayoutDashboard className="size-4" />
                 <span className="hidden md:inline ml-1">Dashboard</span>
-              </a>
-              <a
-                href="/create"
-                className="group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent h-7 gap-1 px-2.5 text-[0.8rem] bg-primary text-primary-foreground hover:bg-primary/80 shadow-glow"
+              </Button>
+              <Button
+                size="sm"
+                className="shadow-glow"
+                render={<Link href="/create" />}
               >
-                <Plus className="size-3.5" />
+                <Plus className="size-4" />
                 <span className="hidden sm:inline ml-1">Code</span>
-              </a>
+              </Button>
               <div className="ml-2 h-6 w-px bg-border" />
-              <a
-                href="/dashboard"
-                className="group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent h-7 gap-1 px-2.5 hover:bg-muted hover:text-foreground"
+              <Button
+                variant="ghost"
+                size="sm"
+                render={<Link href="/dashboard" />}
                 title={user.name || user.email}
               >
                 <span className="size-8 grid place-items-center rounded-full bg-primary/10 text-primary font-medium text-xs">
                   {(user.name || user.email)[0].toUpperCase()}
                 </span>
-              </a>
+              </Button>
             </>
           ) : (
             <>
-              <a
-                href="/login"
-                className="group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent h-7 gap-1 px-2.5 text-[0.8rem] hover:bg-muted hover:text-foreground"
+              <Button
+                variant="ghost"
+                size="sm"
+                render={<Link href="/login" />}
               >
-                <LogIn className="size-3.5" />
+                <LogIn className="size-4" />
                 <span className="hidden sm:inline ml-1">Login</span>
-              </a>
-              <a
-                href="/register"
-                className="group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent h-7 gap-1 px-2.5 text-[0.8rem] bg-primary text-primary-foreground hover:bg-primary/80 shadow-glow"
+              </Button>
+              <Button
+                size="sm"
+                className="shadow-glow"
+                render={<Link href="/register" />}
               >
-                <UserPlus className="size-3.5" />
+                <UserPlus className="size-4" />
                 <span className="hidden sm:inline ml-1">Registrieren</span>
-              </a>
+              </Button>
             </>
           )}
         </nav>
