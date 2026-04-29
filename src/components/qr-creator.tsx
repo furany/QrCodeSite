@@ -9,6 +9,7 @@ import {
   Download,
   Image as ImageIcon,
   Link2,
+  Palette,
   Printer,
   Save,
   Wand2,
@@ -52,6 +53,16 @@ type DotType =
   | "extra-rounded";
 type CornerSquareType = "dot" | "square" | "extra-rounded";
 type CodeStatus = "idle" | "checking" | "available" | "taken" | "invalid";
+type DesignColors = { from: string; to: string; bg: string };
+type BatchItem = {
+  id: string;
+  row: number;
+  name: string;
+  url: string;
+  normalizedUrl: string | null;
+  error: string | null;
+};
+type ValidBatchItem = BatchItem & { normalizedUrl: string; error: null };
 type StyleTemplate = {
   id: string;
   name: string;
@@ -61,9 +72,12 @@ type StyleTemplate = {
   cornerType: string;
   transparent: boolean;
   printMode: boolean;
+  colorFrom?: string | null;
+  colorTo?: string | null;
+  backgroundColor?: string | null;
 };
 
-const PRESETS: Record<string, { from: string; to: string; bg: string }> = {
+const PRESETS: Record<string, DesignColors> = {
   Wald: { from: "#047857", to: "#0891b2", bg: "#ffffff" },
   Koralle: { from: "#e11d48", to: "#f59e0b", bg: "#ffffff" },
   Tinte: { from: "#111827", to: "#2563eb", bg: "#ffffff" },
@@ -72,6 +86,7 @@ const PRESETS: Record<string, { from: string; to: string; bg: string }> = {
 };
 
 const EXPORT_SIZES = ["512", "1024", "2048", "4096"] as const;
+const MAX_BATCH_SIZE = 100;
 
 async function fetchTemplates() {
   try {
@@ -86,7 +101,8 @@ async function fetchTemplates() {
 export function QrCreator() {
   const [tab, setTab] = useState<"static" | "dynamic" | "batch">("static");
   const [qrType, setQrType] = useState<QrType>("url");
-  const [preset, setPreset] = useState<keyof typeof PRESETS>("Wald");
+  const [preset, setPreset] = useState<string>("Wald");
+  const [colors, setColors] = useState<DesignColors>(PRESETS.Wald);
   const [dotType, setDotType] = useState<DotType>("rounded");
   const [cornerType, setCornerType] =
     useState<CornerSquareType>("extra-rounded");
@@ -114,11 +130,23 @@ export function QrCreator() {
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateDesc, setTemplateDesc] = useState("");
-  const [batchItems, setBatchItems] = useState<
-    Array<{ id: string; name: string; url: string }>
-  >([]);
+  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [batchCsvText, setBatchCsvText] = useState("");
   const [batchLoading, setBatchLoading] = useState(false);
+
+  const batchInvalidItems = useMemo(
+    () => batchItems.filter((item) => item.error),
+    [batchItems],
+  );
+  const batchValidItems = useMemo(
+    () =>
+      batchItems.filter(
+        (item): item is ValidBatchItem =>
+          !item.error && Boolean(item.normalizedUrl),
+      ),
+    [batchItems],
+  );
+  const batchLimitExceeded = batchItems.length > MAX_BATCH_SIZE;
 
   const normalizedDynamicUrl = parseHttpUrl(dynUrl);
   const customCodeValue = customCode ? parseCode(customCode) : null;
@@ -214,6 +242,9 @@ export function QrCreator() {
           cornerType,
           transparent,
           printMode,
+          colorFrom: colors.from,
+          colorTo: colors.to,
+          backgroundColor: colors.bg,
         }),
       });
 
@@ -233,7 +264,17 @@ export function QrCreator() {
   }
 
   function loadTemplate(template: (typeof templates)[0]) {
-    setPreset(template.preset as keyof typeof PRESETS);
+    const nextPreset = PRESETS[template.preset] ? template.preset : "Custom";
+    const fallbackColors = PRESETS[template.preset] ?? PRESETS.Wald;
+
+    setPreset(nextPreset);
+    setColors({
+      from: isHexColor(template.colorFrom) ? template.colorFrom : fallbackColors.from,
+      to: isHexColor(template.colorTo) ? template.colorTo : fallbackColors.to,
+      bg: isHexColor(template.backgroundColor)
+        ? template.backgroundColor
+        : fallbackColors.bg,
+    });
     setDotType(template.dotType as DotType);
     setCornerType(template.cornerType as CornerSquareType);
     setTransparent(template.transparent);
@@ -258,26 +299,46 @@ export function QrCreator() {
     }
   }
 
+  function applyPreset(name: string) {
+    const nextColors = PRESETS[name];
+    if (!nextColors) return;
+    setPreset(name);
+    setColors(nextColors);
+  }
+
+  function updateDesignColor(key: keyof DesignColors, value: string) {
+    if (!isHexColor(value)) return;
+    setPreset("Custom");
+    setColors((current) => ({ ...current, [key]: value.toLowerCase() }));
+  }
+
   function parseBatchCsv(csv: string) {
-    const lines = csv.trim().split("\n").filter((line) => line.trim());
-    const items: Array<{ id: string; name: string; url: string }> = [];
+    const delimiter = detectCsvDelimiter(csv);
+    const rows = parseCsvRows(csv, delimiter).filter((row) =>
+      row.fields.some((field) => field.trim()),
+    );
+    const dataRows = rows[0] && isBatchHeader(rows[0].fields) ? rows.slice(1) : rows;
 
-    lines.forEach((line, idx) => {
-      const parts = line.split(",").map((p) => p.trim());
-      if (parts.length >= 2) {
-        const name = parts[0] || `Code ${idx + 1}`;
-        const url = parts[1];
-        if (url) {
-          items.push({
-            id: crypto.randomUUID(),
-            name,
-            url,
-          });
-        }
-      }
+    return dataRows.map((row) => {
+      const first = row.fields[0]?.trim() ?? "";
+      const second = row.fields[1]?.trim() ?? "";
+      const url = second || first;
+      const normalizedUrl = parseHttpUrl(url);
+      const name = second ? first || `Code ${row.row}` : `Code ${row.row}`;
+
+      return {
+        id: crypto.randomUUID(),
+        row: row.row,
+        name,
+        url,
+        normalizedUrl,
+        error: !url
+          ? "URL fehlt."
+          : normalizedUrl
+            ? null
+            : "URL ist ungültig.",
+      };
     });
-
-    return items;
   }
 
   function handleBatchCsvChange(csv: string) {
@@ -314,39 +375,53 @@ export function QrCreator() {
       return;
     }
 
-    const MAX_BATCH_SIZE = 100;
-    if (batchItems.length > MAX_BATCH_SIZE) {
-      toast.error(`Maximal ${MAX_BATCH_SIZE} QR-Codes pro Batch. Du hast ${batchItems.length} eingegeben.`);
+    if (batchLimitExceeded) {
+      toast.error(
+        `Maximal ${MAX_BATCH_SIZE} QR-Codes pro Batch. Du hast ${batchItems.length} eingegeben.`,
+      );
       return;
     }
 
-    const invalidItems = batchItems.filter(
-      (item) => !parseHttpUrl(item.url)
-    );
-    if (invalidItems.length > 0) {
+    if (batchInvalidItems.length > 0) {
       toast.error(
-        `${invalidItems.length} URL(s) sind ungültig. Überprüfe das CSV-Format.`
+        `${batchInvalidItems.length} Zeile(n) sind ungültig. Bitte korrigiere sie vor dem Erstellen.`,
       );
       return;
     }
 
     setBatchLoading(true);
-    const created: Array<{ name: string; code: string; shortUrl: string }> = [];
+    const created: Array<{
+      name: string;
+      code: string;
+      shortUrl: string;
+      targetUrl: string;
+    }> = [];
+    const failures: string[] = [];
 
     try {
-      for (const item of batchItems) {
-        const res = await authorizedFetch("/api/qr", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            targetUrl: parseHttpUrl(item.url),
-            title: item.name,
-            code: null,
-            expiresAt: null,
-          }),
-        });
+      for (const item of batchValidItems) {
+        try {
+          const res = await authorizedFetch("/api/qr", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              targetUrl: item.normalizedUrl,
+              title: item.name,
+              code: null,
+              expiresAt: null,
+            }),
+          });
 
-        if (res.ok) {
+          if (!res.ok) {
+            const body = (await res.json().catch(() => ({}))) as {
+              error?: string;
+            };
+            failures.push(
+              `Zeile ${item.row}: ${body.error ?? `HTTP ${res.status}`}`,
+            );
+            continue;
+          }
+
           const json = (await res.json()) as {
             code: string;
             shortUrl: string;
@@ -355,19 +430,40 @@ export function QrCreator() {
             name: item.name,
             code: json.code,
             shortUrl: json.shortUrl,
+            targetUrl: item.normalizedUrl,
           });
+        } catch (error) {
+          failures.push(
+            `Zeile ${item.row}: ${
+              error instanceof Error ? error.message : "Erstellung fehlgeschlagen"
+            }`,
+          );
         }
       }
 
       if (created.length > 0) {
-        toast.success(`${created.length} QR-Codes erstellt.`);
+        toast.success(
+          failures.length
+            ? `${created.length} QR-Codes erstellt, ${failures.length} fehlgeschlagen.`
+            : `${created.length} QR-Codes erstellt.`,
+        );
         downloadBatchCsv(created);
-        setBatchCsvText("");
-        setBatchItems([]);
+        if (failures.length === 0) {
+          setBatchCsvText("");
+          setBatchItems([]);
+        }
+      }
+
+      if (failures.length > 0) {
+        toast.error(failures.slice(0, 3).join(" "));
+      }
+
+      if (created.length === 0 && failures.length === 0) {
+        toast.error("Keine QR-Codes erstellt.");
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Fehler beim Erstellen."
+        error instanceof Error ? error.message : "Fehler beim Erstellen.",
       );
     } finally {
       setBatchLoading(false);
@@ -375,15 +471,20 @@ export function QrCreator() {
   }
 
   function downloadBatchCsv(
-    created: Array<{ name: string; code: string; shortUrl: string }>
+    created: Array<{
+      name: string;
+      code: string;
+      shortUrl: string;
+      targetUrl: string;
+    }>
   ) {
-    const headers = ["Name", "Code", "Short URL", "Full URL"].join(",");
+    const headers = ["Name", "Code", "Kurz-URL", "Ziel-URL"].join(",");
     const rows = created.map((item) =>
       [
-        `"${item.name.replace(/"/g, '""')}"`,
-        item.code,
-        item.shortUrl,
-        `${typeof window !== "undefined" ? window.location.origin : ""}${item.shortUrl}`,
+        csvCell(item.name),
+        csvCell(item.code),
+        csvCell(toAbsoluteUrl(item.shortUrl)),
+        csvCell(item.targetUrl),
       ].join(",")
     );
     const csv = [headers, ...rows].join("\n");
@@ -398,10 +499,13 @@ export function QrCreator() {
   }
 
   const options: QrOptions = useMemo(() => {
-    const p = PRESETS[preset];
-    const from = printMode ? "#000000" : p.from;
-    const to = printMode ? "#000000" : p.to;
-    const background = printMode ? "#ffffff" : transparent ? "transparent" : p.bg;
+    const from = printMode ? "#000000" : colors.from;
+    const to = printMode ? "#000000" : colors.to;
+    const background = printMode
+      ? "#ffffff"
+      : transparent
+        ? "transparent"
+        : colors.bg;
 
     return {
       type: "svg",
@@ -432,12 +536,11 @@ export function QrCreator() {
         imageSize: logo ? 0.3 : 0,
       },
     };
-  }, [cornerType, dotType, logo, preset, printMode, qrData, transparent]);
+  }, [colors, cornerType, dotType, logo, printMode, qrData, transparent]);
 
   const designWarnings = useMemo(() => {
     if (printMode) return [];
 
-    const p = PRESETS[preset];
     const warnings: string[] = [];
     if (transparent) {
       warnings.push("Transparente Codes vorher auf dem echten Hintergrund testen.");
@@ -446,14 +549,14 @@ export function QrCreator() {
       warnings.push("Mit Logo unbedingt einen Testscan machen.");
     }
     const ratio = Math.min(
-      contrastRatio(p.from, p.bg),
-      contrastRatio(p.to, p.bg),
+      contrastRatio(colors.from, colors.bg),
+      contrastRatio(colors.to, colors.bg),
     );
     if (ratio < 3) {
       warnings.push("Der Farbkontrast ist niedrig. Für Druck besser Druckmodus nutzen.");
     }
     return warnings;
-  }, [logo, preset, printMode, transparent]);
+  }, [colors, logo, printMode, transparent]);
 
   function onLogoUpload(file: File | undefined) {
     if (!file) return;
@@ -1404,7 +1507,7 @@ export function QrCreator() {
                   Name, URL{"\n"}Google, https://google.com{"\n"}GitHub, https://github.com
                 </code>
                 <p className="mt-2 text-xs">
-                  Eine Zeile pro QR-Code. Name ist optional (wird sonst auto-generiert).
+                  Komma oder Semikolon funktionieren. Kopfzeile und Anführungszeichen werden erkannt.
                 </p>
               </div>
 
@@ -1436,14 +1539,33 @@ export function QrCreator() {
                   id="batch-csv"
                   value={batchCsvText}
                   onChange={(e) => handleBatchCsvChange(e.target.value)}
-                  placeholder="Name, URL&#10;Google, https://google.com&#10;GitHub, https://github.com"
+                  placeholder={"Name, URL\nGoogle, https://google.com\nGitHub, https://github.com"}
                   className="min-h-32 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </Field>
 
               {batchItems.length > 0 && (
                 <div className="space-y-2">
-                  <Label>{batchItems.length} QR-Codes zum Erstellen</Label>
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>{batchItems.length} Zeile(n) erkannt</Label>
+                    <span
+                      className={`text-xs ${
+                        batchInvalidItems.length || batchLimitExceeded
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {batchValidItems.length} gültig
+                      {batchInvalidItems.length
+                        ? ` · ${batchInvalidItems.length} fehlerhaft`
+                        : ""}
+                    </span>
+                  </div>
+                  {batchLimitExceeded && (
+                    <p className="text-xs text-destructive">
+                      Maximal {MAX_BATCH_SIZE} QR-Codes pro Batch.
+                    </p>
+                  )}
                   <div className="max-h-64 overflow-auto rounded-lg border border-border">
                     {batchItems.map((item) => (
                       <div
@@ -1451,12 +1573,24 @@ export function QrCreator() {
                         className="flex items-center justify-between gap-2 border-b border-border last:border-0 p-2 text-sm"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{item.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {item.url}
+                          <p className="font-medium truncate">
+                            Zeile {item.row}: {item.name}
+                          </p>
+                          <p
+                            className={`text-xs truncate ${
+                              item.error
+                                ? "text-destructive"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {item.error ?? item.normalizedUrl}
                           </p>
                         </div>
-                        <CheckCircle2 className="size-4 text-green-600 shrink-0" />
+                        {item.error ? (
+                          <AlertTriangle className="size-4 shrink-0 text-destructive" />
+                        ) : (
+                          <CheckCircle2 className="size-4 shrink-0 text-green-600" />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1466,17 +1600,22 @@ export function QrCreator() {
               <Button
                 className="w-full"
                 onClick={createBatchQrCodes}
-                disabled={batchLoading || batchItems.length === 0}
+                disabled={
+                  batchLoading ||
+                  batchItems.length === 0 ||
+                  batchInvalidItems.length > 0 ||
+                  batchLimitExceeded
+                }
               >
                 {batchLoading ? (
                   <>
                     <Wand2 className="size-4 animate-spin" />
-                    Erstelle {batchItems.length} Codes...
+                    Erstelle {batchValidItems.length} Codes...
                   </>
                 ) : (
                   <>
                     <Wand2 className="size-4" />
-                    {batchItems.length} Codes erstellen
+                    {batchValidItems.length} Codes erstellen
                   </>
                 )}
               </Button>
@@ -1531,7 +1670,15 @@ export function QrCreator() {
             )}
 
             <div className="space-y-2">
-              <Label>Farbschema</Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label className="flex items-center gap-2">
+                  <Palette className="size-4" />
+                  Farbschema
+                </Label>
+                <span className="text-xs text-muted-foreground">
+                  {preset === "Custom" ? "Individuell" : preset}
+                </span>
+              </div>
               <div className="grid grid-cols-5 gap-2">
                 {(Object.keys(PRESETS) as Array<keyof typeof PRESETS>).map(
                   (name) => {
@@ -1544,7 +1691,7 @@ export function QrCreator() {
                         aria-label={`Farbschema ${name}`}
                         aria-pressed={active}
                         title={name}
-                        onClick={() => setPreset(name)}
+                        onClick={() => applyPreset(name)}
                         className={`h-10 rounded-lg border transition ${
                           active
                             ? "border-foreground ring-2 ring-ring/30"
@@ -1558,6 +1705,31 @@ export function QrCreator() {
                   },
                 )}
               </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <ColorPicker
+                id="color-from"
+                label="Startfarbe"
+                value={colors.from}
+                disabled={printMode}
+                onChange={(value) => updateDesignColor("from", value)}
+              />
+              <ColorPicker
+                id="color-to"
+                label="Endfarbe"
+                value={colors.to}
+                disabled={printMode}
+                onChange={(value) => updateDesignColor("to", value)}
+              />
+              <ColorPicker
+                id="color-bg"
+                label="Hintergrund"
+                value={colors.bg}
+                disabled={printMode || transparent}
+                displayValue={transparent ? "transparent" : colors.bg}
+                onChange={(value) => updateDesignColor("bg", value)}
+              />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1828,6 +2000,41 @@ function Field({
   );
 }
 
+function ColorPicker({
+  id,
+  label,
+  value,
+  displayValue,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  displayValue?: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="grid grid-cols-[44px_minmax(0,1fr)] items-center gap-2">
+        <input
+          id={id}
+          type="color"
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-10 w-11 rounded-md border border-input bg-background p-1 disabled:cursor-not-allowed disabled:opacity-50"
+        />
+        <code className="min-w-0 truncate rounded-md border border-border bg-muted/40 px-2 py-2 text-xs uppercase text-muted-foreground">
+          {displayValue ?? value}
+        </code>
+      </div>
+    </div>
+  );
+}
+
 function ToggleRow({
   id,
   label,
@@ -1893,6 +2100,113 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
+}
+
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function detectCsvDelimiter(csv: string) {
+  const firstLine = csv.split(/\r?\n/).find((line) => line.trim()) ?? "";
+  const commaCount = countDelimiterOutsideQuotes(firstLine, ",");
+  const semicolonCount = countDelimiterOutsideQuotes(firstLine, ";");
+  return semicolonCount > commaCount ? ";" : ",";
+}
+
+function countDelimiterOutsideQuotes(value: string, delimiter: "," | ";") {
+  let count = 0;
+  let inQuotes = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === '"') {
+      if (inQuotes && value[index + 1] === '"') {
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && char === delimiter) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+function parseCsvRows(csv: string, delimiter: "," | ";") {
+  const rows: Array<{ fields: string[]; row: number }> = [];
+  let fields: string[] = [];
+  let field = "";
+  let row = 1;
+  let inQuotes = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+
+    if (char === '"') {
+      if (inQuotes && csv[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && char === delimiter) {
+      fields.push(field);
+      field = "";
+      continue;
+    }
+
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      fields.push(field);
+      rows.push({ fields, row });
+      fields = [];
+      field = "";
+      if (char === "\r" && csv[index + 1] === "\n") {
+        index += 1;
+      }
+      row += 1;
+      continue;
+    }
+
+    field += char;
+  }
+
+  if (field || fields.length > 0) {
+    fields.push(field);
+    rows.push({ fields, row });
+  }
+
+  return rows;
+}
+
+function isBatchHeader(fields: string[]) {
+  const normalized = fields.map((field) => field.trim().toLowerCase());
+  const hasName = normalized.some((field) =>
+    ["name", "titel", "title"].includes(field),
+  );
+  const hasUrl = normalized.some((field) =>
+    ["url", "link", "ziel-url", "targeturl", "target url"].includes(field),
+  );
+  return hasUrl && (hasName || normalized.length === 1);
+}
+
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function toAbsoluteUrl(value: string) {
+  try {
+    const base =
+      typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    return new URL(value, base).href;
+  } catch {
+    return value;
+  }
 }
 
 function contrastRatio(foreground: string, background: string) {

@@ -40,10 +40,28 @@ export async function POST(request: Request) {
       cornerType: string;
       transparent: boolean;
       printMode: boolean;
+      colorFrom?: string | null;
+      colorTo?: string | null;
+      backgroundColor?: string | null;
     };
 
     if (!body.name) {
       return Response.json({ error: "Name erforderlich" }, { status: 400 });
+    }
+
+    const colorFrom = parseTemplateColor(body.colorFrom);
+    const colorTo = parseTemplateColor(body.colorTo);
+    const backgroundColor = parseTemplateColor(body.backgroundColor);
+
+    if (
+      colorFrom === undefined ||
+      colorTo === undefined ||
+      backgroundColor === undefined
+    ) {
+      return Response.json(
+        { error: "Ungültige Farbe. Nutze Hex-Farben wie #047857." },
+        { status: 400 }
+      );
     }
 
     const template = await db
@@ -58,6 +76,9 @@ export async function POST(request: Request) {
         cornerType: body.cornerType,
         transparent: body.transparent,
         printMode: body.printMode,
+        colorFrom,
+        colorTo,
+        backgroundColor,
       })
       .returning();
 
@@ -69,6 +90,13 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function parseTemplateColor(value: unknown) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string") return undefined;
+  const color = value.trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : undefined;
 }
 
 export async function DELETE(request: Request) {

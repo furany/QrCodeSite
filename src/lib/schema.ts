@@ -63,6 +63,9 @@ export const qrStyleTemplates = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     preset: text("preset").notNull(), // "Wald", "Koralle", etc.
+    colorFrom: text("color_from"),
+    colorTo: text("color_to"),
+    backgroundColor: text("background_color"),
     dotType: text("dot_type").notNull().default("rounded"),
     cornerType: text("corner_type").notNull().default("extra-rounded"),
     transparent: boolean("transparent").notNull().default(false),

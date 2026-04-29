@@ -29,6 +29,13 @@
       "when": 1777402450000,
       "tag": "0003_add_dynamic_qr_types",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777470000000,
+      "tag": "0004_template_design_colors",
+      "breakpoints": true
     }
   ]
 }

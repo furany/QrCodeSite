@@ -4,6 +4,7 @@ export function parseHttpUrl(value: unknown) {
   try {
     const url = new URL(normalizeUrlInput(value));
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.hostname.includes("%")) return null;
     return url.href;
   } catch {
     return null;
