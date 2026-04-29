@@ -125,13 +125,16 @@ export function QrCreator() {
       : asyncCodeStatus;
   const qrData = useMemo(() => {
     if (tab === "dynamic") {
-      return dynResult?.shortUrl ?? normalizedDynamicUrl ?? "https://example.com";
+      if (dynQrType === "url") {
+        return dynResult?.shortUrl ?? normalizedDynamicUrl ?? "https://example.com";
+      }
+      return dynResult?.shortUrl ?? generateQrData(dynQrType, dynQrData) ?? "https://example.com";
     }
     if (qrType === "url") {
       return staticData.trim() || "https://example.com";
     }
     return generateQrData(qrType, qrTypeData) || "https://example.com";
-  }, [tab, qrType, staticData, qrTypeData, dynResult?.shortUrl, normalizedDynamicUrl]);
+  }, [tab, qrType, staticData, qrTypeData, dynResult?.shortUrl, normalizedDynamicUrl, dynQrType, dynQrData]);
 
   const typeValidationError = useMemo(() => {
     if (tab !== "static" || qrType === "url") return null;
