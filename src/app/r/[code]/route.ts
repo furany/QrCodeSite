@@ -49,7 +49,14 @@ export async function GET(
     .catch(() => undefined);
 
   const qrType = (row.qrType || "url") as QrType;
-  const qrData = row.qrData ? JSON.parse(row.qrData) : null;
+  let qrData = null;
+  if (row.qrData) {
+    try {
+      qrData = JSON.parse(row.qrData);
+    } catch {
+      return unavailableResponse("Ungültige QR-Code-Daten");
+    }
+  }
 
   switch (qrType) {
     case "vcard":
@@ -74,13 +81,14 @@ function vcardResponse(data: unknown) {
     return unavailableResponse("Ungültige vCard-Daten");
   }
   const { name, email, phone, org, url } = data as Record<string, unknown>;
+  const escape = (s: unknown) => String(s || "").replace(/[\n;,]/g, c => `\\${c}`);
   const vcard = `BEGIN:VCARD
 VERSION:3.0
-FN:${name || ""}
-${email ? `EMAIL:${email}` : ""}
-${phone ? `TEL:${phone}` : ""}
-${org ? `ORG:${org}` : ""}
-${url ? `URL:${url}` : ""}
+FN:${escape(name)}
+${email ? `EMAIL:${escape(email)}` : ""}
+${phone ? `TEL:${escape(phone)}` : ""}
+${org ? `ORG:${escape(org)}` : ""}
+${url ? `URL:${escape(url)}` : ""}
 END:VCARD`;
 
   return new NextResponse(vcard, {
@@ -99,8 +107,9 @@ function wifiResponse(data: unknown) {
   const { ssid, security, password, hidden } = data as Record<string, unknown>;
   if (!ssid) return unavailableResponse("SSID fehlt");
 
+  const escape = (s: unknown) => String(s || "").replace(/[;,:\\]/g, c => `\\${c}`);
   const hiddenFlag = hidden ? "true" : "false";
-  const wifi = `WIFI:T:${security || "WPA"};S:${ssid};P:${password || ""};H:${hiddenFlag};;`;
+  const wifi = `WIFI:T:${escape(security) || "WPA"};S:${escape(ssid)};P:${escape(password)};H:${hiddenFlag};;`;
 
   return new NextResponse(wifi, {
     headers: {
@@ -154,6 +163,7 @@ function eventResponse(data: unknown) {
   const { title, startDate, startTime, endDate, endTime, location, description } = data as Record<string, unknown>;
   if (!title || !startDate) return unavailableResponse("Titel und Startdatum sind erforderlich");
 
+  const escape = (s: unknown) => String(s || "").replace(/[\n,;]/g, c => (c === "\n" ? "\\n" : `\\${c}`));
   const start = `${String(startDate).replace(/-/g, "")}${startTime ? `T${String(startTime).replace(/:/g, "")}` : ""}`;
   const end = endDate ? `${String(endDate).replace(/-/g, "")}${endTime ? `T${String(endTime).replace(/:/g, "")}` : ""}` : start;
 
@@ -167,9 +177,9 @@ UID:${crypto.randomUUID()}
 DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z
 DTSTART:${start}
 DTEND:${end}
-SUMMARY:${title}
-${location ? `LOCATION:${location}` : ""}
-${description ? `DESCRIPTION:${description}` : ""}
+SUMMARY:${escape(title)}
+${location ? `LOCATION:${escape(location)}` : ""}
+${description ? `DESCRIPTION:${escape(description)}` : ""}
 END:VEVENT
 END:VCALENDAR`;
 

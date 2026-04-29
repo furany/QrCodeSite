@@ -49,8 +49,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Ungültiges JSON" }, { status: 400 });
   }
 
-  const { targetUrl, title, expiresAt, archived } = body as {
+  const { targetUrl, qrData, title, expiresAt, archived } = body as {
     targetUrl?: string;
+    qrData?: unknown;
     title?: string | null;
     expiresAt?: string | null;
     archived?: boolean;
@@ -78,6 +79,7 @@ export async function PATCH(
     updatedAt: new Date(),
   };
   if (parsedTargetUrl) values.targetUrl = parsedTargetUrl;
+  if (qrData !== undefined) values.qrData = qrData ? JSON.stringify(qrData) : null;
   if (title !== undefined) values.title = parseTitle(title);
   if (expiresAt !== undefined) values.expiresAt = parsedExpiresAt;
   if (archived !== undefined) values.archivedAt = archived ? new Date() : null;

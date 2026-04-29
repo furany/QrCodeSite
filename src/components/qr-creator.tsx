@@ -282,6 +282,12 @@ export function QrCreator() {
       return;
     }
 
+    const MAX_BATCH_SIZE = 100;
+    if (batchItems.length > MAX_BATCH_SIZE) {
+      toast.error(`Maximal ${MAX_BATCH_SIZE} QR-Codes pro Batch. Du hast ${batchItems.length} eingegeben.`);
+      return;
+    }
+
     const invalidItems = batchItems.filter(
       (item) => !parseHttpUrl(item.url)
     );
