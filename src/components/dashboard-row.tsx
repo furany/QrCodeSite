@@ -19,13 +19,25 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { authorizedFetch } from "@/lib/client-auth";
-import { parseHttpUrl } from "@/lib/validation";
+import { normalizeUrlInput, parseHttpUrl } from "@/lib/validation";
+import { QR_TYPES, validateQrData, type QrType } from "@/lib/qr-types";
 
 export function DashboardRow({ item }: { item: DashboardItem }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [targetUrl, setTargetUrl] = useState(item.targetUrl);
+  const [qrType, setQrType] = useState<QrType>(item.qrType);
+  const [qrData, setQrData] = useState<Record<string, string>>(
+    item.qrData ?? defaultDataForType(item.qrType),
+  );
   const [title, setTitle] = useState(item.title ?? "");
   const [expiresAt, setExpiresAt] = useState(toDatetimeLocal(item.expiresAt));
   const [saving, setSaving] = useState(false);
@@ -33,10 +45,34 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
   const isExpired = item.isExpired;
 
   async function save() {
-    const parsedTarget = parseHttpUrl(targetUrl);
-    if (!parsedTarget) {
-      toast.error("Bitte gib eine gültige http(s)-URL ein.");
-      return;
+    const body: {
+      targetUrl?: string;
+      qrType: QrType;
+      qrData?: Record<string, string> | null;
+      title: string | null;
+      expiresAt: string | null;
+    } = {
+      qrType,
+      title: title || null,
+      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+    };
+
+    if (qrType === "url") {
+      const parsedTarget = parseHttpUrl(targetUrl);
+      if (!parsedTarget) {
+        toast.error("Bitte gib eine gültige http(s)-URL ein.");
+        return;
+      }
+      body.targetUrl = parsedTarget;
+      body.qrData = null;
+    } else {
+      const normalizedData = normalizeQrDataForType(qrType, qrData);
+      const validationError = validateQrData(qrType, normalizedData);
+      if (validationError) {
+        toast.error(validationError);
+        return;
+      }
+      body.qrData = normalizedData;
     }
 
     setSaving(true);
@@ -44,16 +80,14 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
       const res = await authorizedFetch(`/api/qr/${item.code}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          targetUrl: parsedTarget,
-          title: title || null,
-          expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Speichern fehlgeschlagen");
+        const responseBody = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(responseBody.error ?? "Speichern fehlgeschlagen");
       }
 
       toast.success("Gespeichert.");
@@ -87,25 +121,60 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         targetUrl: item.targetUrl,
+        qrType: item.qrType,
+        qrData: item.qrData,
+        isDynamic: item.qrType !== "url",
         title: item.title ? `${item.title} Kopie` : "Kopie",
         expiresAt: item.expiresAt,
       }),
     });
 
     if (res.ok) {
-      const body = (await res.json()) as { shortUrl: string };
-      await navigator.clipboard.writeText(body.shortUrl);
+      const responseBody = (await res.json()) as { shortUrl: string };
+      await navigator.clipboard.writeText(responseBody.shortUrl);
       toast.success("Kopie erstellt und Kurz-URL kopiert.");
       router.refresh();
     } else {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      toast.error(body.error ?? "Duplizieren fehlgeschlagen.");
+      const responseBody = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      toast.error(responseBody.error ?? "Duplizieren fehlgeschlagen.");
     }
   }
 
   async function copy(value: string) {
     await navigator.clipboard.writeText(value);
     toast.success("Kopiert.");
+  }
+
+  function startEditing() {
+    resetEditState();
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    resetEditState();
+    setEditing(false);
+  }
+
+  function resetEditState() {
+    setQrType(item.qrType);
+    setQrData(item.qrData ?? defaultDataForType(item.qrType));
+    setTargetUrl(item.targetUrl);
+    setTitle(item.title ?? "");
+    setExpiresAt(toDatetimeLocal(item.expiresAt));
+  }
+
+  function changeQrType(nextType: QrType) {
+    setQrType(nextType);
+    setQrData(
+      nextType === item.qrType
+        ? item.qrData ?? defaultDataForType(nextType)
+        : defaultDataForType(nextType),
+    );
+    if (nextType === "url") {
+      setTargetUrl(item.qrType === "url" ? item.targetUrl : "");
+    }
   }
 
   return (
@@ -120,6 +189,9 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
               {item.title || "Unbenannter Code"}
             </h2>
             <StatusBadge archived={isArchived} expired={isExpired} />
+            <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+              {QR_TYPES[item.qrType].label}
+            </span>
             <span className="text-xs text-muted-foreground">
               {item.scanCount} Scan{item.scanCount === 1 ? "" : "s"}
             </span>
@@ -147,32 +219,76 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
                 </Button>
               </div>
               <p className="break-all text-muted-foreground">
-                Ziel: {item.targetUrl}
+                {item.qrType === "url"
+                  ? `Ziel: ${item.targetUrl}`
+                  : `Inhalt: ${summaryForItem(item)}`}
               </p>
               <p className="text-xs text-muted-foreground">
                 Erstellt {formatDate(item.createdAt)}
-                {item.lastScanAt ? ` · letzter Scan ${formatDate(item.lastScanAt)}` : ""}
-                {item.expiresAt ? ` · gültig bis ${formatDate(item.expiresAt)}` : ""}
+                {item.lastScanAt
+                  ? ` · letzter Scan ${formatDate(item.lastScanAt)}`
+                  : ""}
+                {item.expiresAt
+                  ? ` · gültig bis ${formatDate(item.expiresAt)}`
+                  : ""}
               </p>
             </div>
           ) : (
-            <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1.2fr_220px]">
-              <Field label="Bezeichnung">
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-              </Field>
-              <Field label="Ziel-URL">
-                <Input
-                  value={targetUrl}
-                  onChange={(e) => setTargetUrl(e.target.value)}
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)_220px]">
+                <Field label="Typ">
+                  <Select
+                    value={qrType}
+                    onValueChange={(value) => changeQrType(value as QrType)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(QR_TYPES) as QrType[]).map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {QR_TYPES[type].label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Bezeichnung">
+                  <Input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                  />
+                </Field>
+                <Field label="Gültig bis">
+                  <Input
+                    type="datetime-local"
+                    value={expiresAt}
+                    onChange={(event) => setExpiresAt(event.target.value)}
+                  />
+                </Field>
+              </div>
+
+              {qrType === "url" ? (
+                <Field label="Ziel-URL">
+                  <Input
+                    value={targetUrl}
+                    onBlur={() => {
+                      if (targetUrl.trim()) {
+                        setTargetUrl(normalizeUrlInput(targetUrl));
+                      }
+                    }}
+                    onChange={(event) => setTargetUrl(event.target.value)}
+                    placeholder="https://example.com"
+                  />
+                </Field>
+              ) : (
+                <QrDataFields
+                  type={qrType}
+                  data={qrData}
+                  onChange={setQrData}
+                  idPrefix={`edit-${item.code}`}
                 />
-              </Field>
-              <Field label="Gültig bis">
-                <Input
-                  type="datetime-local"
-                  value={expiresAt}
-                  onChange={(e) => setExpiresAt(e.target.value)}
-                />
-              </Field>
+              )}
             </div>
           )}
         </div>
@@ -188,7 +304,7 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Bearbeitung abbrechen"
-                onClick={() => setEditing(false)}
+                onClick={cancelEditing}
               >
                 <X className="size-4" />
               </Button>
@@ -203,11 +319,7 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
                 <BarChart3 className="size-4" />
                 Analytics
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setEditing(true)}
-              >
+              <Button variant="secondary" size="sm" onClick={startEditing}>
                 <Pencil className="size-4" />
                 Bearbeiten
               </Button>
@@ -241,6 +353,274 @@ export function DashboardRow({ item }: { item: DashboardItem }) {
     </Card>
   );
 }
+
+function QrDataFields({
+  type,
+  data,
+  idPrefix,
+  onChange,
+}: {
+  type: Exclude<QrType, "url">;
+  data: Record<string, string>;
+  idPrefix: string;
+  onChange: (data: Record<string, string>) => void;
+}) {
+  function update(key: string, value: string) {
+    onChange({ ...data, [key]: value });
+  }
+
+  switch (type) {
+    case "tel":
+      return (
+        <Field label="Telefonnummer">
+          <Input
+            id={`${idPrefix}-phone`}
+            type="tel"
+            value={data.phone || ""}
+            onChange={(event) => update("phone", event.target.value)}
+            placeholder="+49123456789"
+          />
+        </Field>
+      );
+
+    case "sms":
+      return (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Telefonnummer">
+            <Input
+              id={`${idPrefix}-sms-phone`}
+              type="tel"
+              value={data.phone || ""}
+              onChange={(event) => update("phone", event.target.value)}
+              placeholder="+49123456789"
+            />
+          </Field>
+          <Field label="Nachricht">
+            <Input
+              id={`${idPrefix}-sms-message`}
+              value={data.message || ""}
+              onChange={(event) => update("message", event.target.value)}
+              placeholder="Optionale Nachricht"
+            />
+          </Field>
+        </div>
+      );
+
+    case "email":
+      return (
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="E-Mail-Adresse">
+              <Input
+                id={`${idPrefix}-email`}
+                type="email"
+                value={data.email || ""}
+                onChange={(event) => update("email", event.target.value)}
+                placeholder="kontakt@example.com"
+              />
+            </Field>
+            <Field label="Betreff">
+              <Input
+                id={`${idPrefix}-email-subject`}
+                value={data.subject || ""}
+                onChange={(event) => update("subject", event.target.value)}
+                placeholder="Optionaler Betreff"
+              />
+            </Field>
+          </div>
+          <Field label="Nachricht">
+            <textarea
+              id={`${idPrefix}-email-body`}
+              value={data.body || ""}
+              onChange={(event) => update("body", event.target.value)}
+              placeholder="Optionale Nachricht"
+              className={textareaClassName}
+            />
+          </Field>
+        </div>
+      );
+
+    case "vcard":
+      return (
+        <div className="space-y-3">
+          <Field label="Name">
+            <Input
+              id={`${idPrefix}-vcard-name`}
+              value={data.name || ""}
+              onChange={(event) => update("name", event.target.value)}
+              placeholder="Max Mustermann"
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="E-Mail">
+              <Input
+                id={`${idPrefix}-vcard-email`}
+                type="email"
+                value={data.email || ""}
+                onChange={(event) => update("email", event.target.value)}
+                placeholder="max@example.com"
+              />
+            </Field>
+            <Field label="Telefon">
+              <Input
+                id={`${idPrefix}-vcard-phone`}
+                type="tel"
+                value={data.phone || ""}
+                onChange={(event) => update("phone", event.target.value)}
+                placeholder="+49123456789"
+              />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Organisation">
+              <Input
+                id={`${idPrefix}-vcard-org`}
+                value={data.org || ""}
+                onChange={(event) => update("org", event.target.value)}
+                placeholder="Firma"
+              />
+            </Field>
+            <Field label="Website">
+              <Input
+                id={`${idPrefix}-vcard-url`}
+                type="url"
+                value={data.url || ""}
+                onBlur={() => {
+                  if (data.url?.trim()) update("url", normalizeUrlInput(data.url));
+                }}
+                onChange={(event) => update("url", event.target.value)}
+                placeholder="https://example.com"
+              />
+            </Field>
+          </div>
+        </div>
+      );
+
+    case "wifi":
+      return (
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="SSID">
+              <Input
+                id={`${idPrefix}-wifi-ssid`}
+                value={data.ssid || ""}
+                onChange={(event) => update("ssid", event.target.value)}
+                placeholder="Mein Netzwerk"
+              />
+            </Field>
+            <Field label="Sicherheit">
+              <Select
+                value={data.security || "WPA"}
+                onValueChange={(value) => {
+                  if (value) update("security", value);
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WPA">WPA/WPA2</SelectItem>
+                  <SelectItem value="WEP">WEP</SelectItem>
+                  <SelectItem value="open">Offen</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+          {data.security !== "open" && (
+            <Field label="Passwort">
+              <Input
+                id={`${idPrefix}-wifi-password`}
+                type="password"
+                value={data.password || ""}
+                onChange={(event) => update("password", event.target.value)}
+                placeholder="Netzwerkpasswort"
+              />
+            </Field>
+          )}
+          <label className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={data.hidden === "true"}
+              onChange={(event) =>
+                update("hidden", event.target.checked ? "true" : "false")
+              }
+            />
+            Verstecktes Netzwerk
+          </label>
+        </div>
+      );
+
+    case "event":
+      return (
+        <div className="space-y-3">
+          <Field label="Veranstaltungstitel">
+            <Input
+              id={`${idPrefix}-event-title`}
+              value={data.title || ""}
+              onChange={(event) => update("title", event.target.value)}
+              placeholder="Konferenz 2026"
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Startdatum">
+              <Input
+                id={`${idPrefix}-event-start-date`}
+                type="date"
+                value={data.startDate || ""}
+                onChange={(event) => update("startDate", event.target.value)}
+              />
+            </Field>
+            <Field label="Startuhrzeit">
+              <Input
+                id={`${idPrefix}-event-start-time`}
+                type="time"
+                value={data.startTime || ""}
+                onChange={(event) => update("startTime", event.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Enddatum">
+              <Input
+                id={`${idPrefix}-event-end-date`}
+                type="date"
+                value={data.endDate || ""}
+                onChange={(event) => update("endDate", event.target.value)}
+              />
+            </Field>
+            <Field label="Enduhrzeit">
+              <Input
+                id={`${idPrefix}-event-end-time`}
+                type="time"
+                value={data.endTime || ""}
+                onChange={(event) => update("endTime", event.target.value)}
+              />
+            </Field>
+          </div>
+          <Field label="Ort">
+            <Input
+              id={`${idPrefix}-event-location`}
+              value={data.location || ""}
+              onChange={(event) => update("location", event.target.value)}
+              placeholder="Berlin"
+            />
+          </Field>
+          <Field label="Beschreibung">
+            <textarea
+              id={`${idPrefix}-event-description`}
+              value={data.description || ""}
+              onChange={(event) => update("description", event.target.value)}
+              placeholder="Weitere Details"
+              className={textareaClassName}
+            />
+          </Field>
+        </div>
+      );
+  }
+}
+
+const textareaClassName =
+  "min-h-20 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 function Field({
   label,
@@ -276,6 +656,55 @@ function StatusBadge({
       {label}
     </span>
   );
+}
+
+function summaryForItem(item: DashboardItem) {
+  const data = item.qrData ?? {};
+
+  switch (item.qrType) {
+    case "vcard":
+      return [data.name, data.org, data.email, data.phone, data.url]
+        .filter(Boolean)
+        .join(" · ");
+    case "wifi":
+      return [
+        data.ssid ? `WLAN ${data.ssid}` : "WLAN",
+        data.security || "WPA",
+        data.hidden === "true" ? "versteckt" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    case "sms":
+      return [data.phone, data.message].filter(Boolean).join(" · ");
+    case "email":
+      return [data.email, data.subject].filter(Boolean).join(" · ");
+    case "tel":
+      return data.phone || "Telefonnummer";
+    case "event":
+      return [data.title, data.startDate, data.location].filter(Boolean).join(" · ");
+    default:
+      return item.targetUrl;
+  }
+}
+
+function defaultDataForType(type: QrType): Record<string, string> {
+  return type === "wifi" ? { security: "WPA" } : {};
+}
+
+function normalizeQrDataForType(type: QrType, data: Record<string, string>) {
+  const normalized = Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [key, value.trim()]),
+  );
+
+  if (type === "wifi" && !normalized.security) {
+    normalized.security = "WPA";
+  }
+
+  if (type === "vcard" && normalized.url) {
+    normalized.url = normalizeUrlInput(normalized.url);
+  }
+
+  return normalized;
 }
 
 function formatDate(value: string) {

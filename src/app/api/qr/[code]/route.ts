@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { QR_TYPES, validateQrData, type QrType } from "@/lib/qr-types";
 import { qrCodes, type NewQrCode } from "@/lib/schema";
 import { assertSameOrigin, rateLimit } from "@/lib/security";
 import { parseHttpUrl, parseNullableDate, parseTitle } from "@/lib/validation";
@@ -28,7 +29,7 @@ export async function PATCH(
 
   const { code } = await params;
   const existing = await db
-    .select({ userId: qrCodes.userId })
+    .select({ userId: qrCodes.userId, qrType: qrCodes.qrType })
     .from(qrCodes)
     .where(eq(qrCodes.code, code))
     .limit(1);
@@ -49,8 +50,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Ungültiges JSON" }, { status: 400 });
   }
 
-  const { targetUrl, qrData, title, expiresAt, archived } = body as {
+  const { targetUrl, qrType, qrData, title, expiresAt, archived } = body as {
     targetUrl?: string;
+    qrType?: string;
     qrData?: unknown;
     title?: string | null;
     expiresAt?: string | null;
@@ -58,12 +60,56 @@ export async function PATCH(
   };
   const parsedTargetUrl =
     targetUrl !== undefined ? parseHttpUrl(targetUrl) : undefined;
+  const parsedQrType = qrType !== undefined ? parseQrType(qrType) : undefined;
+  const nextQrType = parsedQrType ?? parseQrType(existing[0].qrType) ?? "url";
   const parsedExpiresAt =
     expiresAt !== undefined ? parseNullableDate(expiresAt) : undefined;
 
-  if (targetUrl !== undefined && !parsedTargetUrl) {
+  if (qrType !== undefined && !parsedQrType) {
+    return NextResponse.json(
+      { error: "qrType ist ungültig." },
+      { status: 400 },
+    );
+  }
+
+  if (nextQrType === "url" && targetUrl !== undefined && !parsedTargetUrl) {
     return NextResponse.json(
       { error: "targetUrl muss eine http(s)-URL sein" },
+      { status: 400 },
+    );
+  }
+
+  if (nextQrType === "url" && qrType !== undefined && !parsedTargetUrl) {
+    return NextResponse.json(
+      { error: "Für Website-QR-Codes ist eine gültige Ziel-URL erforderlich." },
+      { status: 400 },
+    );
+  }
+
+  const normalizedQrData =
+    qrData !== undefined ? normalizeQrData(qrData) : undefined;
+
+  if (qrData !== undefined && !normalizedQrData) {
+    return NextResponse.json(
+      { error: "qrData muss ein Objekt mit Textwerten sein." },
+      { status: 400 },
+    );
+  }
+
+  if (nextQrType !== "url" && normalizedQrData) {
+    const validationError = validateQrData(nextQrType, normalizedQrData);
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+  }
+
+  if (
+    nextQrType !== "url" &&
+    qrType !== undefined &&
+    normalizedQrData === undefined
+  ) {
+    return NextResponse.json(
+      { error: "Für diesen QR-Code-Typ sind Inhaltsdaten erforderlich." },
       { status: 400 },
     );
   }
@@ -78,8 +124,16 @@ export async function PATCH(
   const values: Partial<NewQrCode> = {
     updatedAt: new Date(),
   };
-  if (parsedTargetUrl) values.targetUrl = parsedTargetUrl;
-  if (qrData !== undefined) values.qrData = qrData ? JSON.stringify(qrData) : null;
+  if (qrType !== undefined) values.qrType = nextQrType;
+  if (nextQrType === "url") {
+    if (parsedTargetUrl) values.targetUrl = parsedTargetUrl;
+    if (qrType !== undefined) values.qrData = null;
+  } else {
+    if (qrType !== undefined) values.targetUrl = `${new URL(req.url).origin}/r/`;
+    if (normalizedQrData !== undefined) {
+      values.qrData = JSON.stringify(normalizedQrData);
+    }
+  }
   if (title !== undefined) values.title = parseTitle(title);
   if (expiresAt !== undefined) values.expiresAt = parsedExpiresAt;
   if (archived !== undefined) values.archivedAt = archived ? new Date() : null;
@@ -137,4 +191,17 @@ export async function DELETE(
 
 function canManageCode(user: { id: string; role: string }, ownerId: string | null) {
   return user.role === "admin" || ownerId === user.id;
+}
+
+function parseQrType(value: unknown): QrType | null {
+  if (typeof value !== "string") return null;
+  return value in QR_TYPES ? (value as QrType) : null;
+}
+
+function normalizeQrData(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, String(entry ?? "")]),
+  );
 }

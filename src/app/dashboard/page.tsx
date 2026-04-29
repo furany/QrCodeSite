@@ -9,6 +9,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getBaseUrl } from "@/lib/env";
+import { QR_TYPES, type QrType } from "@/lib/qr-types";
 import { qrCodes, type QrCode } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,8 @@ export default async function DashboardPage() {
   const items: DashboardItem[] = rows.map((row) => ({
     code: row.code,
     targetUrl: row.targetUrl,
+    qrType: parseStoredQrType(row.qrType),
+    qrData: parseStoredQrData(row.qrData),
     title: row.title,
     scanCount: row.scanCount,
     createdAt: row.createdAt.toISOString(),
@@ -172,4 +175,25 @@ function latestScan(rows: QrCode[]) {
     .filter((date): date is Date => Boolean(date))
     .sort((a, b) => b.getTime() - a.getTime());
   return scans[0];
+}
+
+function parseStoredQrType(value: string): QrType {
+  return value in QR_TYPES ? (value as QrType) : "url";
+}
+
+function parseStoredQrData(value: string | null) {
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, entry]) => [key, String(entry ?? "")]),
+    );
+  } catch {
+    return null;
+  }
 }

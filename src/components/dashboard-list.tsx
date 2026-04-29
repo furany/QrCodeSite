@@ -16,10 +16,13 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { QR_TYPES, type QrType } from "@/lib/qr-types";
 
 export type DashboardItem = {
   code: string;
   targetUrl: string;
+  qrType: QrType;
+  qrData: Record<string, string> | null;
   title: string | null;
   scanCount: number;
   createdAt: string;
@@ -45,7 +48,14 @@ export function DashboardList({ items }: { items: DashboardItem[] }) {
       .filter((item) => showArchived || !item.archivedAt)
       .filter((item) => {
         if (!needle) return true;
-        return [item.code, item.title, item.targetUrl, item.shortUrl]
+        return [
+          item.code,
+          item.title,
+          item.targetUrl,
+          item.shortUrl,
+          QR_TYPES[item.qrType].label,
+          item.qrData ? Object.values(item.qrData).join(" ") : null,
+        ]
           .filter(Boolean)
           .some((value) => value!.toLowerCase().includes(needle));
       })
@@ -78,7 +88,7 @@ export function DashboardList({ items }: { items: DashboardItem[] }) {
 
     const selected = filteredItems.filter((item) => selectedCodes.has(item.code));
     const csv = [
-      ["Code", "Title", "Target URL", "Short URL", "Scans", "Created", "Last Scan"].join(
+      ["Code", "Typ", "Titel", "Ziel/Inhalt", "Kurz-URL", "Scans", "Erstellt", "Letzter Scan"].join(
         ","
       ),
       ...selected.map((item) => {
@@ -88,8 +98,9 @@ export function DashboardList({ items }: { items: DashboardItem[] }) {
           : "-";
         return [
           item.code,
+          `"${QR_TYPES[item.qrType].label.replace(/"/g, '""')}"`,
           `"${(item.title || "").replace(/"/g, '""')}"`,
-          `"${item.targetUrl.replace(/"/g, '""')}"`,
+          `"${contentForExport(item).replace(/"/g, '""')}"`,
           item.shortUrl,
           item.scanCount,
           createdDate,
@@ -241,6 +252,16 @@ function compareItems(a: DashboardItem, b: DashboardItem, sort: SortMode) {
 
 function dateValue(value: string | null) {
   return value ? new Date(value).getTime() : 0;
+}
+
+function contentForExport(item: DashboardItem) {
+  if (item.qrType === "url") return item.targetUrl;
+  if (!item.qrData) return "";
+
+  return Object.entries(item.qrData)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("; ");
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
