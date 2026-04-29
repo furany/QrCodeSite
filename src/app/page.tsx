@@ -132,20 +132,11 @@ export default function Home() {
 
             {/* Mini Hero Generator */}
             <div className="w-full lg:w-auto lg:flex-shrink-0">
-              <div className="glass-md max-w-sm overflow-hidden rounded-lg p-6 sm:p-8">
+              <div className="glass-md p-6 sm:p-8">
                 <p className="mb-4 text-sm font-medium text-muted-foreground">
                   Live Vorschau
                 </p>
-                <div className="max-h-[500px] overflow-y-auto">
-                  <QrCreator />
-                </div>
-                <Button
-                  size="sm"
-                  render={<Link href="/create" />}
-                  className="mt-4 w-full"
-                >
-                  → Zum QR-Code Editor
-                </Button>
+                <QrCreator />
               </div>
             </div>
           </div>
