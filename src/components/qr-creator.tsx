@@ -78,6 +78,8 @@ export function QrCreator() {
   const [staticData, setStaticData] = useState("https://example.com");
   const [qrTypeData, setQrTypeData] = useState<Record<string, string>>({});
   const [dynUrl, setDynUrl] = useState("https://example.com");
+  const [dynQrType, setDynQrType] = useState<QrType>("url");
+  const [dynQrData, setDynQrData] = useState<Record<string, string>>({});
   const [dynTitle, setDynTitle] = useState("");
   const [customCode, setCustomCode] = useState("");
   const [asyncCodeStatus, setAsyncCodeStatus] = useState<CodeStatus>("idle");
@@ -440,11 +442,6 @@ export function QrCreator() {
   }
 
   async function createDynamic() {
-    const parsedTarget = parseHttpUrl(dynUrl);
-    if (!parsedTarget) {
-      toast.error("Bitte gib eine gültige http(s)-URL ein.");
-      return;
-    }
     if (customCode && !customCodeValue) {
       toast.error("Der gewünschte Slug ist ungültig.");
       return;
@@ -462,16 +459,41 @@ export function QrCreator() {
       return;
     }
 
+    let targetUrl = "";
+    let qrData = null;
+    let isDynamic = true;
+
+    if (dynQrType === "url") {
+      const parsedTarget = parseHttpUrl(dynUrl);
+      if (!parsedTarget) {
+        toast.error("Bitte gib eine gültige http(s)-URL ein.");
+        return;
+      }
+      targetUrl = parsedTarget;
+      isDynamic = false;
+    } else {
+      const validationError = validateQrData(dynQrType, dynQrData);
+      if (validationError) {
+        toast.error(validationError);
+        return;
+      }
+      targetUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/r/`;
+      qrData = dynQrData;
+    }
+
     setDynLoading(true);
     try {
       const res = await authorizedFetch("/api/qr", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          targetUrl: parsedTarget,
+          targetUrl,
+          qrType: dynQrType,
+          qrData,
           title: dynTitle || null,
           code: customCodeValue,
           expiresAt: expiresEnabled && expiresAt ? expiresAt : null,
+          isDynamic,
         }),
       });
 
@@ -890,26 +912,351 @@ export function QrCreator() {
             </TabsContent>
 
             <TabsContent value="dynamic" className="mt-5 space-y-4">
-              <Field
-                label="Ziel-URL"
-                htmlFor="dyn-url"
-                error={
-                  dynUrl.trim() && !normalizedDynamicUrl
-                    ? "Bitte gib eine gültige http(s)-URL ein."
-                    : null
-                }
-              >
-                <Input
-                  id="dyn-url"
-                  value={dynUrl}
-                  onBlur={normalizeDynamicUrl}
-                  onChange={(event) => {
-                    setDynUrl(event.target.value);
-                    setDynResult(null);
-                  }}
-                  placeholder="https://..."
-                />
+              <Field label="QR-Code Typ">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                  {(Object.keys(QR_TYPES) as QrType[]).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setDynQrType(type);
+                        setDynQrData({});
+                        setDynResult(null);
+                      }}
+                      className={`rounded-lg border-2 p-3 text-center text-sm transition ${
+                        dynQrType === type
+                          ? "border-ring bg-primary/10 text-primary font-semibold"
+                          : "border-border hover:border-foreground/30"
+                      }`}
+                      title={QR_TYPES[type].description}
+                    >
+                      <div className="text-lg mb-1">{QR_TYPES[type].icon}</div>
+                      <div className="text-xs">{QR_TYPES[type].label}</div>
+                    </button>
+                  ))}
+                </div>
               </Field>
+
+              {dynQrType === "url" && (
+                <Field
+                  label="Ziel-URL"
+                  htmlFor="dyn-url"
+                  error={
+                    dynUrl.trim() && !normalizedDynamicUrl
+                      ? "Bitte gib eine gültige http(s)-URL ein."
+                      : null
+                  }
+                >
+                  <Input
+                    id="dyn-url"
+                    value={dynUrl}
+                    onBlur={normalizeDynamicUrl}
+                    onChange={(event) => {
+                      setDynUrl(event.target.value);
+                      setDynResult(null);
+                    }}
+                    placeholder="https://..."
+                  />
+                </Field>
+              )}
+
+              {dynQrType === "tel" && (
+                <Field label="Telefonnummer" htmlFor="dyn-tel">
+                  <Input
+                    id="dyn-tel"
+                    type="tel"
+                    value={dynQrData.phone || ""}
+                    onChange={(e) => {
+                      setDynQrData({ ...dynQrData, phone: e.target.value });
+                      setDynResult(null);
+                    }}
+                    placeholder="+49123456789"
+                  />
+                </Field>
+              )}
+
+              {dynQrType === "sms" && (
+                <>
+                  <Field label="Telefonnummer" htmlFor="dyn-sms-phone">
+                    <Input
+                      id="dyn-sms-phone"
+                      type="tel"
+                      value={dynQrData.phone || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, phone: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="+49123456789"
+                    />
+                  </Field>
+                  <Field label="Nachricht (optional)" htmlFor="dyn-sms-msg">
+                    <Input
+                      id="dyn-sms-msg"
+                      value={dynQrData.message || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, message: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="Nachricht"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {dynQrType === "email" && (
+                <>
+                  <Field label="E-Mail-Adresse" htmlFor="dyn-email">
+                    <Input
+                      id="dyn-email"
+                      type="email"
+                      value={dynQrData.email || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, email: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="contact@example.com"
+                    />
+                  </Field>
+                  <Field label="Betreff (optional)" htmlFor="dyn-email-subject">
+                    <Input
+                      id="dyn-email-subject"
+                      value={dynQrData.subject || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, subject: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="Betreff"
+                    />
+                  </Field>
+                  <Field label="Nachricht (optional)" htmlFor="dyn-email-body">
+                    <Input
+                      id="dyn-email-body"
+                      value={dynQrData.body || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, body: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="Nachricht"
+                    />
+                  </Field>
+                </>
+              )}
+
+              {dynQrType === "vcard" && (
+                <>
+                  <Field label="Name" htmlFor="dyn-vcard-name">
+                    <Input
+                      id="dyn-vcard-name"
+                      value={dynQrData.name || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, name: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="Max Mustermann"
+                    />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="E-Mail (optional)" htmlFor="dyn-vcard-email">
+                      <Input
+                        id="dyn-vcard-email"
+                        type="email"
+                        value={dynQrData.email || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, email: e.target.value });
+                          setDynResult(null);
+                        }}
+                        placeholder="max@example.com"
+                      />
+                    </Field>
+                    <Field label="Telefon (optional)" htmlFor="dyn-vcard-phone">
+                      <Input
+                        id="dyn-vcard-phone"
+                        type="tel"
+                        value={dynQrData.phone || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, phone: e.target.value });
+                          setDynResult(null);
+                        }}
+                        placeholder="+49123456789"
+                      />
+                    </Field>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Organisation (optional)" htmlFor="dyn-vcard-org">
+                      <Input
+                        id="dyn-vcard-org"
+                        value={dynQrData.org || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, org: e.target.value });
+                          setDynResult(null);
+                        }}
+                        placeholder="Firmenname"
+                      />
+                    </Field>
+                    <Field label="Website (optional)" htmlFor="dyn-vcard-url">
+                      <Input
+                        id="dyn-vcard-url"
+                        type="url"
+                        value={dynQrData.url || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, url: e.target.value });
+                          setDynResult(null);
+                        }}
+                        placeholder="https://example.com"
+                      />
+                    </Field>
+                  </div>
+                </>
+              )}
+
+              {dynQrType === "wifi" && (
+                <>
+                  <Field label="SSID (Netzwerkname)" htmlFor="dyn-wifi-ssid">
+                    <Input
+                      id="dyn-wifi-ssid"
+                      value={dynQrData.ssid || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, ssid: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="MyNetwork"
+                    />
+                  </Field>
+                  <Field label="Sicherheit" htmlFor="dyn-wifi-security">
+                    <Select
+                      value={(dynQrData.security as string) || "WPA"}
+                      onValueChange={(value) => {
+                        if (value) {
+                          setDynQrData({ ...dynQrData, security: value });
+                          setDynResult(null);
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="dyn-wifi-security">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="WPA">WPA/WPA2</SelectItem>
+                        <SelectItem value="WEP">WEP</SelectItem>
+                        <SelectItem value="open">Offen (kein Passwort)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  {dynQrData.security !== "open" && (
+                    <Field label="Passwort" htmlFor="dyn-wifi-password">
+                      <Input
+                        id="dyn-wifi-password"
+                        type="password"
+                        value={dynQrData.password || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, password: e.target.value });
+                          setDynResult(null);
+                        }}
+                        placeholder="Netzwerkpasswort"
+                      />
+                    </Field>
+                  )}
+                  <ToggleRow
+                    id="dyn-wifi-hidden"
+                    label="Verstecktes Netzwerk"
+                    checked={dynQrData.hidden === "true"}
+                    onCheckedChange={(checked) => {
+                      setDynQrData({
+                        ...dynQrData,
+                        hidden: checked ? "true" : "false",
+                      });
+                      setDynResult(null);
+                    }}
+                  />
+                </>
+              )}
+
+              {dynQrType === "event" && (
+                <>
+                  <Field label="Veranstaltungstitel" htmlFor="dyn-event-title">
+                    <Input
+                      id="dyn-event-title"
+                      value={dynQrData.title || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, title: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="Konferenz 2026"
+                    />
+                  </Field>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Startdatum" htmlFor="dyn-event-start-date">
+                      <Input
+                        id="dyn-event-start-date"
+                        type="date"
+                        value={dynQrData.startDate || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, startDate: e.target.value });
+                          setDynResult(null);
+                        }}
+                      />
+                    </Field>
+                    <Field label="Startuhrzeit" htmlFor="dyn-event-start-time">
+                      <Input
+                        id="dyn-event-start-time"
+                        type="time"
+                        value={dynQrData.startTime || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, startTime: e.target.value });
+                          setDynResult(null);
+                        }}
+                      />
+                    </Field>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Enddatum (optional)" htmlFor="dyn-event-end-date">
+                      <Input
+                        id="dyn-event-end-date"
+                        type="date"
+                        value={dynQrData.endDate || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, endDate: e.target.value });
+                          setDynResult(null);
+                        }}
+                      />
+                    </Field>
+                    <Field label="Enduhrzeit (optional)" htmlFor="dyn-event-end-time">
+                      <Input
+                        id="dyn-event-end-time"
+                        type="time"
+                        value={dynQrData.endTime || ""}
+                        onChange={(e) => {
+                          setDynQrData({ ...dynQrData, endTime: e.target.value });
+                          setDynResult(null);
+                        }}
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Ort (optional)" htmlFor="dyn-event-location">
+                    <Input
+                      id="dyn-event-location"
+                      value={dynQrData.location || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, location: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="Berlin Convention Center"
+                    />
+                  </Field>
+                  <Field label="Beschreibung (optional)" htmlFor="dyn-event-desc">
+                    <Input
+                      id="dyn-event-desc"
+                      value={dynQrData.description || ""}
+                      onChange={(e) => {
+                        setDynQrData({ ...dynQrData, description: e.target.value });
+                        setDynResult(null);
+                      }}
+                      placeholder="Weitere Details"
+                    />
+                  </Field>
+                </>
+              )}
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Bezeichnung" htmlFor="dyn-title">
                   <Input
@@ -975,7 +1322,7 @@ export function QrCreator() {
               <Button
                 className="h-10 w-full"
                 onClick={createDynamic}
-                disabled={dynLoading || !dynUrl.trim()}
+                disabled={dynLoading || (dynQrType === "url" && !dynUrl.trim())}
               >
                 {dynResult ? (
                   <CheckCircle2 className="size-4" />

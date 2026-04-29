@@ -33,6 +33,8 @@ export const qrCodes = pgTable(
     code: text("code").primaryKey(),
     userId: text("user_id"),
     targetUrl: text("target_url").notNull(),
+    qrType: text("qr_type").notNull().default("url"),
+    qrData: text("qr_data"),
     title: text("title"),
     scanCount: integer("scan_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })

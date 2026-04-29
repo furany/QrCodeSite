@@ -6,6 +6,8 @@ import { qrCodes } from "@/lib/schema";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+type QrType = "url" | "vcard" | "wifi" | "sms" | "email" | "tel" | "event";
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ code: string }> },
@@ -14,6 +16,8 @@ export async function GET(
   const rows = await db
     .select({
       targetUrl: qrCodes.targetUrl,
+      qrType: qrCodes.qrType,
+      qrData: qrCodes.qrData,
       title: qrCodes.title,
       archivedAt: qrCodes.archivedAt,
       expiresAt: qrCodes.expiresAt,
@@ -44,7 +48,138 @@ export async function GET(
     .where(eq(qrCodes.code, code))
     .catch(() => undefined);
 
-  return NextResponse.redirect(row.targetUrl, { status: 307 });
+  const qrType = (row.qrType || "url") as QrType;
+  const qrData = row.qrData ? JSON.parse(row.qrData) : null;
+
+  switch (qrType) {
+    case "vcard":
+      return vcardResponse(qrData);
+    case "wifi":
+      return wifiResponse(qrData);
+    case "sms":
+      return smsResponse(qrData);
+    case "email":
+      return emailResponse(qrData);
+    case "tel":
+      return telResponse(qrData);
+    case "event":
+      return eventResponse(qrData);
+    default:
+      return NextResponse.redirect(row.targetUrl, { status: 307 });
+  }
+}
+
+function vcardResponse(data: unknown) {
+  if (!data || typeof data !== "object") {
+    return unavailableResponse("Ungültige vCard-Daten");
+  }
+  const { name, email, phone, org, url } = data as Record<string, unknown>;
+  const vcard = `BEGIN:VCARD
+VERSION:3.0
+FN:${name || ""}
+${email ? `EMAIL:${email}` : ""}
+${phone ? `TEL:${phone}` : ""}
+${org ? `ORG:${org}` : ""}
+${url ? `URL:${url}` : ""}
+END:VCARD`;
+
+  return new NextResponse(vcard, {
+    headers: {
+      "content-type": "text/vcard; charset=utf-8",
+      "content-disposition": `attachment; filename="${name || "contact"}.vcf"`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function wifiResponse(data: unknown) {
+  if (!data || typeof data !== "object") {
+    return unavailableResponse("Ungültige WiFi-Daten");
+  }
+  const { ssid, security, password, hidden } = data as Record<string, unknown>;
+  if (!ssid) return unavailableResponse("SSID fehlt");
+
+  const hiddenFlag = hidden ? "true" : "false";
+  const wifi = `WIFI:T:${security || "WPA"};S:${ssid};P:${password || ""};H:${hiddenFlag};;`;
+
+  return new NextResponse(wifi, {
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function smsResponse(data: unknown) {
+  if (!data || typeof data !== "object") {
+    return unavailableResponse("Ungültige SMS-Daten");
+  }
+  const { phone, message } = data as Record<string, unknown>;
+  if (!phone) return unavailableResponse("Telefonnummer fehlt");
+
+  const smsUrl = `sms:${encodeURIComponent(String(phone))}${message ? `?body=${encodeURIComponent(String(message))}` : ""}`;
+  return NextResponse.redirect(smsUrl, { status: 307 });
+}
+
+function emailResponse(data: unknown) {
+  if (!data || typeof data !== "object") {
+    return unavailableResponse("Ungültige Email-Daten");
+  }
+  const { email, subject, body } = data as Record<string, unknown>;
+  if (!email) return unavailableResponse("Email-Adresse fehlt");
+
+  const params = new URLSearchParams();
+  if (subject) params.append("subject", String(subject));
+  if (body) params.append("body", String(body));
+
+  const mailtoUrl = `mailto:${encodeURIComponent(String(email))}${params.toString() ? `?${params.toString()}` : ""}`;
+  return NextResponse.redirect(mailtoUrl, { status: 307 });
+}
+
+function telResponse(data: unknown) {
+  if (!data || typeof data !== "object") {
+    return unavailableResponse("Ungültige Tel-Daten");
+  }
+  const { phone } = data as Record<string, unknown>;
+  if (!phone) return unavailableResponse("Telefonnummer fehlt");
+
+  const telUrl = `tel:${encodeURIComponent(String(phone))}`;
+  return NextResponse.redirect(telUrl, { status: 307 });
+}
+
+function eventResponse(data: unknown) {
+  if (!data || typeof data !== "object") {
+    return unavailableResponse("Ungültige Event-Daten");
+  }
+  const { title, startDate, startTime, endDate, endTime, location, description } = data as Record<string, unknown>;
+  if (!title || !startDate) return unavailableResponse("Titel und Startdatum sind erforderlich");
+
+  const start = `${String(startDate).replace(/-/g, "")}${startTime ? `T${String(startTime).replace(/:/g, "")}` : ""}`;
+  const end = endDate ? `${String(endDate).replace(/-/g, "")}${endTime ? `T${String(endTime).replace(/:/g, "")}` : ""}` : start;
+
+  const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Qrft//QR Code Events//DE
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+UID:${crypto.randomUUID()}
+DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z
+DTSTART:${start}
+DTEND:${end}
+SUMMARY:${title}
+${location ? `LOCATION:${location}` : ""}
+${description ? `DESCRIPTION:${description}` : ""}
+END:VEVENT
+END:VCALENDAR`;
+
+  return new NextResponse(ical, {
+    headers: {
+      "content-type": "text/calendar; charset=utf-8",
+      "content-disposition": `attachment; filename="${String(title)}.ics"`,
+      "cache-control": "no-store",
+    },
+  });
 }
 
 function unavailableResponse(message: string) {
