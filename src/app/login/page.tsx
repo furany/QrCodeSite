@@ -14,7 +14,7 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   const user = await getCurrentUser();
-  const next = (await searchParams).next || "/dashboard";
+  const next = safeNextPath((await searchParams).next);
   if (user) redirect(next);
 
   return (
@@ -24,7 +24,10 @@ export default async function LoginPage({
       footer={
         <>
           Noch kein Konto?{" "}
-          <Link href="/register" className="text-primary hover:underline">
+          <Link
+            href={`/register?next=${encodeURIComponent(next)}`}
+            className="text-primary hover:underline"
+          >
             Registrieren
           </Link>
         </>
@@ -56,4 +59,8 @@ function AuthShell({
       </div>
     </div>
   );
+}
+
+function safeNextPath(value: string | undefined) {
+  return value?.startsWith("/") && !value.startsWith("//") ? value : "/dashboard";
 }

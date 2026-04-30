@@ -214,7 +214,7 @@ export function AuthForm({
           ? "Noch kein Konto? "
           : "Bereits registriert? "}
         <a
-          href={mode === "login" ? "/register" : "/login"}
+          href={`/${mode === "login" ? "register" : "login"}?next=${encodeURIComponent(next)}`}
           className="font-semibold text-primary hover:underline"
         >
           {mode === "login" ? "Registrieren" : "Einloggen"}

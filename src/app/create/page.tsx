@@ -1,4 +1,5 @@
 import { QrCreator } from "@/components/qr-creator";
+import { getCurrentUser } from "@/lib/auth";
 
 export const metadata = {
   title: "QR-Code erstellen",
@@ -6,7 +7,9 @@ export const metadata = {
     "Statische, dynamische und Batch-QR-Codes mit Logo, Markenfarben und Export erstellen.",
 };
 
-export default function CreatePage() {
+export default async function CreatePage() {
+  const user = await getCurrentUser();
+
   return (
     <div className="bg-[linear-gradient(180deg,var(--background),color-mix(in_oklch,var(--muted)_45%,transparent))]">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
@@ -36,7 +39,7 @@ export default function CreatePage() {
             </div>
           </div>
         </div>
-        <QrCreator />
+        <QrCreator isAuthenticated={Boolean(user)} />
       </div>
     </div>
   );

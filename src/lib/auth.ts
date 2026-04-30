@@ -104,10 +104,29 @@ export function canRegister({
   inviteCode?: string | null;
 }) {
   if (userCount === 0) return true;
-  if (process.env.REGISTRATION_ENABLED === "true") return true;
 
   const requiredInvite = process.env.INVITE_CODE;
-  return Boolean(requiredInvite && inviteCode && inviteCode === requiredInvite);
+  if (process.env.REGISTRATION_ENABLED === "false") {
+    return Boolean(requiredInvite && inviteCode && inviteCode === requiredInvite);
+  }
+
+  return true;
+}
+
+export function isRegistrationInviteOnly(userCount: number) {
+  return (
+    userCount > 0 &&
+    process.env.REGISTRATION_ENABLED === "false" &&
+    Boolean(process.env.INVITE_CODE)
+  );
+}
+
+export function isRegistrationClosed(userCount: number) {
+  return (
+    userCount > 0 &&
+    process.env.REGISTRATION_ENABLED === "false" &&
+    !process.env.INVITE_CODE
+  );
 }
 
 export function normalizeEmail(email: string) {

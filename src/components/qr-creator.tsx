@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   CalendarDays,
@@ -12,12 +13,14 @@ import {
   Globe2,
   Image as ImageIcon,
   Link2,
+  LogIn,
   Mail,
   MessageSquareText,
   Palette,
   Phone,
   Printer,
   Save,
+  UserPlus,
   Wand2,
   Wifi,
   X,
@@ -84,6 +87,9 @@ type StyleTemplate = {
   colorTo?: string | null;
   backgroundColor?: string | null;
 };
+type QrCreatorProps = {
+  isAuthenticated?: boolean;
+};
 
 const PRESETS: Record<string, DesignColors> = {
   Wald: { from: "#047857", to: "#0891b2", bg: "#ffffff" },
@@ -115,7 +121,7 @@ async function fetchTemplates() {
   }
 }
 
-export function QrCreator() {
+export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
   const [tab, setTab] = useState<"static" | "dynamic" | "batch">("static");
   const [qrType, setQrType] = useState<QrType>("url");
   const [preset, setPreset] = useState<string>("Wald");
@@ -174,6 +180,12 @@ export function QrCreator() {
     setDynResult(null);
   }
 
+  function showAuthRequiredToast() {
+    toast.error(
+      "Bitte registriere dich oder logge dich ein, um dynamische QR-Codes zu speichern.",
+    );
+  }
+
   const normalizedDynamicUrl = parseHttpUrl(dynUrl);
   const customCodeValue = customCode ? parseCode(customCode) : null;
   const customCodeError =
@@ -230,7 +242,7 @@ export function QrCreator() {
   }, []);
 
   useEffect(() => {
-    if (!customCodeValue) return;
+    if (!isAuthenticated || !customCodeValue) return;
 
     const timeout = window.setTimeout(async () => {
       setAsyncCodeStatus("checking");
@@ -248,9 +260,14 @@ export function QrCreator() {
     }, 350);
 
     return () => window.clearTimeout(timeout);
-  }, [customCode, customCodeValue]);
+  }, [customCode, customCodeValue, isAuthenticated]);
 
   async function saveTemplate() {
+    if (!isAuthenticated) {
+      showAuthRequiredToast();
+      return;
+    }
+
     if (!templateName.trim()) {
       toast.error("Vorlagen-Name erforderlich.");
       return;
@@ -309,6 +326,11 @@ export function QrCreator() {
   }
 
   async function deleteTemplate(templateId: string) {
+    if (!isAuthenticated) {
+      showAuthRequiredToast();
+      return;
+    }
+
     try {
       const res = await authorizedFetch(`/api/templates?id=${templateId}`, {
         method: "DELETE",
@@ -396,6 +418,11 @@ export function QrCreator() {
   }
 
   async function createBatchQrCodes() {
+    if (!isAuthenticated) {
+      showAuthRequiredToast();
+      return;
+    }
+
     if (batchItems.length === 0) {
       toast.error("Bitte füge mindestens einen QR-Code hinzu.");
       return;
@@ -609,6 +636,11 @@ export function QrCreator() {
   }
 
   async function createDynamic() {
+    if (!isAuthenticated) {
+      showAuthRequiredToast();
+      return;
+    }
+
     if (customCode && !customCodeValue) {
       toast.error("Der gewünschte Slug ist ungültig.");
       return;
@@ -974,6 +1006,10 @@ export function QrCreator() {
             </TabsContent>
 
             <TabsContent value="dynamic" className="mt-5 space-y-4">
+              {!isAuthenticated && (
+                <AuthRequiredPanel text="Dynamische QR-Codes werden in deinem Konto gespeichert. Danach kannst du Ziel, Inhalt, Ablaufdatum und Analytics jederzeit im Dashboard bearbeiten." />
+              )}
+
               <Field
                 label="Inhaltstyp"
                 hint="Dynamische Codes speichern einen Kurzlink, den du später im Dashboard bearbeiten kannst."
@@ -1288,9 +1324,11 @@ export function QrCreator() {
                 )}
                 {dynLoading
                   ? "Erstelle..."
-                  : dynResult
-                    ? "Kurz-URL erstellt"
-                    : "Dynamischen Code speichern"}
+                  : !isAuthenticated
+                    ? "Einloggen zum Speichern"
+                    : dynResult
+                      ? "Kurz-URL erstellt"
+                      : "Dynamischen Code speichern"}
               </Button>
               {dynResult && (
                 <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
@@ -1317,6 +1355,10 @@ export function QrCreator() {
             </TabsContent>
 
             <TabsContent value="batch" className="mt-5 space-y-4">
+              {!isAuthenticated && (
+                <AuthRequiredPanel text="Batch-Erstellung speichert dynamische Kurzlinks in deinem Konto. Registriere dich kostenlos, bevor du mehrere Codes erzeugst." />
+              )}
+
               <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                 <p className="font-medium mb-2">Batch-Import</p>
                 <code className="text-xs bg-background px-2 py-1 rounded block overflow-auto max-h-20">
@@ -1433,7 +1475,9 @@ export function QrCreator() {
                 ) : (
                   <>
                     <Wand2 className="size-4" />
-                    {batchValidItems.length} Codes erstellen
+                    {isAuthenticated
+                      ? `${batchValidItems.length} Codes erstellen`
+                      : "Einloggen zum Erstellen"}
                   </>
                 )}
               </Button>
@@ -1633,10 +1677,18 @@ export function QrCreator() {
               type="button"
               variant="secondary"
               className="w-full"
-              onClick={() => setShowSaveTemplate(true)}
+              onClick={() => {
+                if (!isAuthenticated) {
+                  showAuthRequiredToast();
+                  return;
+                }
+                setShowSaveTemplate(true);
+              }}
             >
               <Save className="size-4" />
-              Aktuelles Design speichern
+              {isAuthenticated
+                ? "Aktuelles Design speichern"
+                : "Einloggen, um Design zu speichern"}
             </Button>
 
             {showSaveTemplate && (
@@ -1794,6 +1846,42 @@ export function QrCreator() {
             <Download className="size-4" />
             SVG
           </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AuthRequiredPanel({ text }: { text: string }) {
+  const next = encodeURIComponent("/create");
+
+  return (
+    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+      <div className="flex gap-3">
+        <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+          <LogIn className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-foreground">Konto erforderlich</p>
+          <p className="mt-1 leading-6 text-muted-foreground">{text}</p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <Button
+              size="sm"
+              className="shadow-glow"
+              render={<Link href={`/register?next=${next}`} />}
+            >
+              <UserPlus className="size-4" />
+              Kostenlos registrieren
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              render={<Link href={`/login?next=${next}`} />}
+            >
+              <LogIn className="size-4" />
+              Einloggen
+            </Button>
+          </div>
         </div>
       </div>
     </div>
