@@ -1,14 +1,16 @@
 import Link from "next/link";
 import {
+  ArrowRight,
   BarChart3,
+  CheckCircle2,
   Download,
   Link2,
   Palette,
+  QrCode,
   RefreshCw,
   ShieldCheck,
   Zap,
 } from "lucide-react";
-import { QrCreator } from "@/components/qr-creator";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -129,13 +131,49 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Mini Hero Generator */}
-            <div className="w-full lg:w-auto lg:flex-shrink-0">
-              <div className="glass-md p-6 sm:p-8">
-                <p className="mb-4 text-sm font-medium text-muted-foreground">
-                  Live Vorschau
-                </p>
-                <QrCreator />
+            {/* Lightweight product preview */}
+            <div className="w-full lg:max-w-sm lg:flex-shrink-0">
+              <div className="glass-md overflow-hidden p-5 shadow-glow sm:p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-primary">
+                      Design-Vorschau
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Farben, Logo und Tracking in einem Workflow
+                    </p>
+                  </div>
+                  <div className="grid size-10 place-items-center rounded-lg bg-primary/10 text-primary">
+                    <QrCode className="size-5" />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card p-4">
+                  <div className="grid aspect-square place-items-center rounded-xl bg-white p-6 shadow-inner">
+                    <QrCode className="size-40 text-slate-950 sm:size-48" />
+                  </div>
+                  <div className="mt-4 grid gap-2 text-sm">
+                    {[
+                      "Dynamische URLs bearbeiten",
+                      "vCard, WLAN, Events und mehr",
+                      "PNG, SVG und Scan-Analytics",
+                    ].map((item) => (
+                      <div key={item} className="flex items-center gap-2">
+                        <CheckCircle2 className="size-4 text-primary" />
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <Button
+                  className="mt-5 w-full"
+                  size="lg"
+                  render={<Link href="/create" />}
+                >
+                  Creator öffnen
+                  <ArrowRight className="size-4" />
+                </Button>
               </div>
             </div>
           </div>
