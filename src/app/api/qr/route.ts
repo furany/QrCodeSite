@@ -1,10 +1,10 @@
 import { asc, desc, eq } from "drizzle-orm";
-import { customAlphabet } from "nanoid";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getBaseUrl } from "@/lib/env";
 import { QR_TYPES, validateQrData, type QrType } from "@/lib/qr-types";
+import { insertQrCode, isUniqueViolation } from "@/lib/qr-store";
 import { qrCodes } from "@/lib/schema";
 import { assertSameOrigin, rateLimit } from "@/lib/security";
 import {
@@ -16,8 +16,6 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const newCode = customAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 7);
 
 export async function POST(req: Request) {
   const originError = assertSameOrigin(req);
@@ -179,57 +177,6 @@ export async function GET(req: Request) {
   return NextResponse.json({ items: rows });
 }
 
-async function insertQrCode({
-  code,
-  targetUrl,
-  qrType,
-  qrData,
-  title,
-  expiresAt,
-  userId,
-}: {
-  code: string | null;
-  targetUrl: string;
-  qrType: QrType;
-  qrData: string | null;
-  title: string | null;
-  expiresAt: Date | null;
-  userId: string;
-}) {
-  if (code) {
-    await db.insert(qrCodes).values({
-      code,
-      targetUrl,
-      qrType,
-      qrData,
-      title,
-      expiresAt,
-      userId,
-    });
-    return code;
-  }
-
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const generatedCode = newCode();
-    try {
-      await db.insert(qrCodes).values({
-        code: generatedCode,
-        targetUrl,
-        qrType,
-        qrData,
-        title,
-        expiresAt,
-        userId,
-      });
-      return generatedCode;
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-    }
-  }
-
-  throw new Error("Konnte keinen eindeutigen QR-Code erzeugen.");
-}
-
 function parseQrType(value: unknown): QrType | null {
   if (typeof value !== "string") return null;
   return value in QR_TYPES ? (value as QrType) : null;
@@ -240,14 +187,5 @@ function normalizeQrData(value: unknown): Record<string, string> | null {
 
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [key, String(entry ?? "")]),
-  );
-}
-
-function isUniqueViolation(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
   );
 }

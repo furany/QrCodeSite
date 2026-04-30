@@ -452,47 +452,56 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
     const failures: string[] = [];
 
     try {
-      for (const item of batchValidItems) {
-        try {
-          const res = await authorizedFetch("/api/qr", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              targetUrl: item.normalizedUrl,
-              title: item.name,
-              code: null,
-              expiresAt: null,
-            }),
-          });
-
-          if (!res.ok) {
-            const body = (await res.json().catch(() => ({}))) as {
-              error?: string;
-            };
-            failures.push(
-              `Zeile ${item.row}: ${body.error ?? `HTTP ${res.status}`}`,
-            );
-            continue;
-          }
-
-          const json = (await res.json()) as {
-            code: string;
-            shortUrl: string;
-          };
-          created.push({
+      const res = await authorizedFetch("/api/qr/batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          items: batchValidItems.map((item) => ({
+            row: item.row,
             name: item.name,
-            code: json.code,
-            shortUrl: json.shortUrl,
+            title: item.name,
             targetUrl: item.normalizedUrl,
-          });
-        } catch (error) {
-          failures.push(
-            `Zeile ${item.row}: ${
-              error instanceof Error ? error.message : "Erstellung fehlgeschlagen"
-            }`,
-          );
-        }
+          })),
+        }),
+      });
+
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        items?: Array<{
+          row: number;
+          name: string;
+          code: string;
+          shortUrl: string;
+          targetUrl: string;
+        }>;
+        failures?: Array<{ row: number; error: string }>;
+      };
+
+      if (!res.ok && !body.items?.length) {
+        const failureMessage = (body.failures ?? [])
+          .slice(0, 3)
+          .map((failure) => `Zeile ${failure.row}: ${failure.error}`)
+          .join(" ");
+        throw new Error(
+          res.status === 401
+            ? "Bitte melde dich an, um Batch-QR-Codes zu speichern."
+            : failureMessage || body.error || "Batch-Erstellung fehlgeschlagen.",
+        );
       }
+
+      created.push(
+        ...(body.items ?? []).map((item) => ({
+          name: item.name,
+          code: item.code,
+          shortUrl: item.shortUrl,
+          targetUrl: item.targetUrl,
+        })),
+      );
+      failures.push(
+        ...(body.failures ?? []).map(
+          (failure) => `Zeile ${failure.row}: ${failure.error}`,
+        ),
+      );
 
       if (created.length > 0) {
         toast.success(
