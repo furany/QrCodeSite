@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getBaseUrl } from "@/lib/env";
+import { QR_TYPES, validateQrData, type QrType } from "@/lib/qr-types";
 import { qrCodes } from "@/lib/schema";
 import { assertSameOrigin, rateLimit } from "@/lib/security";
 import {
@@ -50,7 +51,13 @@ export async function POST(req: Request) {
     isDynamic?: boolean;
   };
 
-  const type = (qrType || "url") as string;
+  const type = parseQrType(qrType || "url");
+  if (!type) {
+    return NextResponse.json(
+      { error: "qrType ist ungültig." },
+      { status: 400 },
+    );
+  }
   const parsedCode = code ? parseCode(code) : null;
   const parsedExpiresAt = parseNullableDate(expiresAt);
 
@@ -65,8 +72,15 @@ export async function POST(req: Request) {
   let dataToStore: string | null = null;
 
   if (isDynamic && type !== "url") {
-    // Dynamic non-URL types: store data, targetUrl is just the redirect endpoint
-    const validationError = validateQrData(type, qrData);
+    const normalizedQrData = normalizeQrData(qrData);
+    if (!normalizedQrData) {
+      return NextResponse.json(
+        { error: "qrData muss ein Objekt mit Textwerten sein." },
+        { status: 400 },
+      );
+    }
+
+    const validationError = validateQrData(type, normalizedQrData);
     if (validationError) {
       return NextResponse.json(
         { error: validationError },
@@ -74,9 +88,8 @@ export async function POST(req: Request) {
       );
     }
     parsedTargetUrl = `${new URL(req.url).origin}/r/`;
-    dataToStore = JSON.stringify(qrData);
+    dataToStore = JSON.stringify(normalizedQrData);
   } else {
-    // URL types (static or dynamic)
     parsedTargetUrl = parseHttpUrl(targetUrl);
     if (!parsedTargetUrl) {
       return NextResponse.json(
@@ -177,7 +190,7 @@ async function insertQrCode({
 }: {
   code: string | null;
   targetUrl: string;
-  qrType: string;
+  qrType: QrType;
   qrData: string | null;
   title: string | null;
   expiresAt: Date | null;
@@ -217,56 +230,17 @@ async function insertQrCode({
   throw new Error("Konnte keinen eindeutigen QR-Code erzeugen.");
 }
 
-function validateQrData(type: string, data: unknown): string | null {
-  if (!data || typeof data !== "object") {
-    return "Ungültige Daten für den QR-Code-Typ";
-  }
+function parseQrType(value: unknown): QrType | null {
+  if (typeof value !== "string") return null;
+  return value in QR_TYPES ? (value as QrType) : null;
+}
 
-  const obj = data as Record<string, unknown>;
+function normalizeQrData(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 
-  switch (type) {
-    case "vcard": {
-      if (!obj.name || typeof obj.name !== "string") {
-        return "Name ist erforderlich für vCard";
-      }
-      return null;
-    }
-    case "wifi": {
-      if (!obj.ssid || typeof obj.ssid !== "string") {
-        return "SSID ist erforderlich für WiFi";
-      }
-      return null;
-    }
-    case "sms": {
-      if (!obj.phone || typeof obj.phone !== "string") {
-        return "Telefonnummer ist erforderlich für SMS";
-      }
-      return null;
-    }
-    case "email": {
-      if (!obj.email || typeof obj.email !== "string") {
-        return "Email-Adresse ist erforderlich";
-      }
-      return null;
-    }
-    case "tel": {
-      if (!obj.phone || typeof obj.phone !== "string") {
-        return "Telefonnummer ist erforderlich für Tel";
-      }
-      return null;
-    }
-    case "event": {
-      if (!obj.title || typeof obj.title !== "string") {
-        return "Titel ist erforderlich für Event";
-      }
-      if (!obj.startDate || typeof obj.startDate !== "string") {
-        return "Startdatum ist erforderlich für Event";
-      }
-      return null;
-    }
-    default:
-      return null;
-  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, String(entry ?? "")]),
+  );
 }
 
 function isUniqueViolation(error: unknown) {

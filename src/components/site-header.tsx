@@ -1,6 +1,7 @@
 import { LayoutDashboard, LogIn, Plus, QrCode, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { LogoutButton } from "@/components/logout-button";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function SiteHeader() {
@@ -50,6 +51,7 @@ export async function SiteHeader() {
                   {(user.name || user.email)[0].toUpperCase()}
                 </span>
               </Button>
+              <LogoutButton showLabel />
             </>
           ) : (
             <>

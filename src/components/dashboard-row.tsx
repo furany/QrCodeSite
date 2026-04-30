@@ -28,7 +28,12 @@ import {
 } from "@/components/ui/select";
 import { authorizedFetch } from "@/lib/client-auth";
 import { normalizeUrlInput, parseHttpUrl } from "@/lib/validation";
-import { QR_TYPES, validateQrData, type QrType } from "@/lib/qr-types";
+import {
+  QR_TYPES,
+  validateQrData,
+  wifiRequiresPassword,
+  type QrType,
+} from "@/lib/qr-types";
 
 export function DashboardRow({ item }: { item: DashboardItem }) {
   const router = useRouter();
@@ -443,7 +448,7 @@ function QrDataFields({
     case "vcard":
       return (
         <div className="space-y-3">
-          <Field label="Name">
+          <Field label="Anzeigename">
             <Input
               id={`${idPrefix}-vcard-name`}
               value={data.name || ""}
@@ -451,6 +456,24 @@ function QrDataFields({
               placeholder="Max Mustermann"
             />
           </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Vorname">
+              <Input
+                id={`${idPrefix}-vcard-first-name`}
+                value={data.firstName || ""}
+                onChange={(event) => update("firstName", event.target.value)}
+                placeholder="Max"
+              />
+            </Field>
+            <Field label="Nachname">
+              <Input
+                id={`${idPrefix}-vcard-last-name`}
+                value={data.lastName || ""}
+                onChange={(event) => update("lastName", event.target.value)}
+                placeholder="Mustermann"
+              />
+            </Field>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="E-Mail">
               <Input
@@ -472,12 +495,39 @@ function QrDataFields({
             </Field>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Telefon Arbeit">
+              <Input
+                id={`${idPrefix}-vcard-work-phone`}
+                type="tel"
+                value={data.workPhone || ""}
+                onChange={(event) => update("workPhone", event.target.value)}
+                placeholder="+49 30 123456"
+              />
+            </Field>
+            <Field label="Position">
+              <Input
+                id={`${idPrefix}-vcard-job-title`}
+                value={data.jobTitle || ""}
+                onChange={(event) => update("jobTitle", event.target.value)}
+                placeholder="Founder"
+              />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Organisation">
               <Input
                 id={`${idPrefix}-vcard-org`}
                 value={data.org || ""}
                 onChange={(event) => update("org", event.target.value)}
                 placeholder="Firma"
+              />
+            </Field>
+            <Field label="Abteilung">
+              <Input
+                id={`${idPrefix}-vcard-department`}
+                value={data.department || ""}
+                onChange={(event) => update("department", event.target.value)}
+                placeholder="Marketing"
               />
             </Field>
             <Field label="Website">
@@ -493,6 +543,59 @@ function QrDataFields({
               />
             </Field>
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Straße">
+              <Input
+                id={`${idPrefix}-vcard-street`}
+                value={data.street || ""}
+                onChange={(event) => update("street", event.target.value)}
+                placeholder="Musterstraße 1"
+              />
+            </Field>
+            <Field label="Ort">
+              <Input
+                id={`${idPrefix}-vcard-city`}
+                value={data.city || ""}
+                onChange={(event) => update("city", event.target.value)}
+                placeholder="Berlin"
+              />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="PLZ">
+              <Input
+                id={`${idPrefix}-vcard-postal-code`}
+                value={data.postalCode || ""}
+                onChange={(event) => update("postalCode", event.target.value)}
+                placeholder="10115"
+              />
+            </Field>
+            <Field label="Region">
+              <Input
+                id={`${idPrefix}-vcard-region`}
+                value={data.region || ""}
+                onChange={(event) => update("region", event.target.value)}
+                placeholder="Berlin"
+              />
+            </Field>
+            <Field label="Land">
+              <Input
+                id={`${idPrefix}-vcard-country`}
+                value={data.country || ""}
+                onChange={(event) => update("country", event.target.value)}
+                placeholder="Deutschland"
+              />
+            </Field>
+          </div>
+          <Field label="Notiz">
+            <textarea
+              id={`${idPrefix}-vcard-note`}
+              value={data.note || ""}
+              onChange={(event) => update("note", event.target.value)}
+              placeholder="Optionaler Hinweis"
+              className={textareaClassName}
+            />
+          </Field>
         </div>
       );
 
@@ -510,7 +613,7 @@ function QrDataFields({
             </Field>
             <Field label="Sicherheit">
               <Select
-                value={data.security || "WPA"}
+                value={data.security === "open" ? "nopass" : data.security || "WPA"}
                 onValueChange={(value) => {
                   if (value) update("security", value);
                 }}
@@ -520,13 +623,16 @@ function QrDataFields({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="WPA">WPA/WPA2</SelectItem>
+                  <SelectItem value="WPA2">WPA2</SelectItem>
+                  <SelectItem value="WPA3">WPA3</SelectItem>
+                  <SelectItem value="WPA2-WPA3">WPA2/WPA3 Mixed</SelectItem>
                   <SelectItem value="WEP">WEP</SelectItem>
-                  <SelectItem value="open">Offen</SelectItem>
+                  <SelectItem value="nopass">Offen</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
           </div>
-          {data.security !== "open" && (
+          {wifiRequiresPassword(data.security) && (
             <Field label="Passwort">
               <Input
                 id={`${idPrefix}-wifi-password`}

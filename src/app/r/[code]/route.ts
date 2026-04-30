@@ -1,12 +1,11 @@
 import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { generateQrData, type QrType } from "@/lib/qr-types";
 import { qrCodes } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-type QrType = "url" | "vcard" | "wifi" | "sms" | "email" | "tel" | "event";
 
 export async function GET(
   _req: Request,
@@ -77,41 +76,30 @@ export async function GET(
 }
 
 function vcardResponse(data: unknown) {
-  if (!data || typeof data !== "object") {
-    return unavailableResponse("Ungültige vCard-Daten");
-  }
-  const { name, email, phone, org, url } = data as Record<string, unknown>;
-  const escape = (s: unknown) => String(s || "").replace(/[\n;,]/g, c => `\\${c}`);
-  const vcard = `BEGIN:VCARD
-VERSION:3.0
-FN:${escape(name)}
-${email ? `EMAIL:${escape(email)}` : ""}
-${phone ? `TEL:${escape(phone)}` : ""}
-${org ? `ORG:${escape(org)}` : ""}
-${url ? `URL:${escape(url)}` : ""}
-END:VCARD`;
+  const normalized = normalizeQrData(data);
+  if (!normalized) return unavailableResponse("Ungültige vCard-Daten");
+
+  const vcard = generateQrData("vcard", normalized);
+  const filename = filenameForDownload(
+    normalized.name || normalized.lastName || "contact",
+    "vcf",
+  );
 
   return new NextResponse(vcard, {
     headers: {
       "content-type": "text/vcard; charset=utf-8",
-      "content-disposition": `attachment; filename="${name || "contact"}.vcf"`,
+      "content-disposition": `attachment; filename="${filename}"`,
       "cache-control": "no-store",
     },
   });
 }
 
 function wifiResponse(data: unknown) {
-  if (!data || typeof data !== "object") {
-    return unavailableResponse("Ungültige WiFi-Daten");
-  }
-  const { ssid, security, password, hidden } = data as Record<string, unknown>;
-  if (!ssid) return unavailableResponse("SSID fehlt");
+  const normalized = normalizeQrData(data);
+  if (!normalized) return unavailableResponse("Ungültige WLAN-Daten");
+  if (!normalized.ssid) return unavailableResponse("SSID fehlt");
 
-  const escape = (s: unknown) => String(s || "").replace(/[;,:\\]/g, c => `\\${c}`);
-  const hiddenFlag = hidden ? "true" : "false";
-  const wifi = `WIFI:T:${escape(security) || "WPA"};S:${escape(ssid)};P:${escape(password)};H:${hiddenFlag};;`;
-
-  return new NextResponse(wifi, {
+  return new NextResponse(generateQrData("wifi", normalized), {
     headers: {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store",
@@ -120,76 +108,72 @@ function wifiResponse(data: unknown) {
 }
 
 function smsResponse(data: unknown) {
-  if (!data || typeof data !== "object") {
-    return unavailableResponse("Ungültige SMS-Daten");
-  }
-  const { phone, message } = data as Record<string, unknown>;
-  if (!phone) return unavailableResponse("Telefonnummer fehlt");
+  const normalized = normalizeQrData(data);
+  if (!normalized) return unavailableResponse("Ungültige SMS-Daten");
+  if (!normalized.phone) return unavailableResponse("Telefonnummer fehlt");
 
-  const smsUrl = `sms:${encodeURIComponent(String(phone))}${message ? `?body=${encodeURIComponent(String(message))}` : ""}`;
+  const smsUrl = `sms:${encodeURIComponent(normalized.phone)}${
+    normalized.message ? `?body=${encodeURIComponent(normalized.message)}` : ""
+  }`;
   return NextResponse.redirect(smsUrl, { status: 307 });
 }
 
 function emailResponse(data: unknown) {
-  if (!data || typeof data !== "object") {
-    return unavailableResponse("Ungültige Email-Daten");
-  }
-  const { email, subject, body } = data as Record<string, unknown>;
-  if (!email) return unavailableResponse("Email-Adresse fehlt");
+  const normalized = normalizeQrData(data);
+  if (!normalized) return unavailableResponse("Ungültige E-Mail-Daten");
+  if (!normalized.email) return unavailableResponse("E-Mail-Adresse fehlt");
 
-  const params = new URLSearchParams();
-  if (subject) params.append("subject", String(subject));
-  if (body) params.append("body", String(body));
-
-  const mailtoUrl = `mailto:${encodeURIComponent(String(email))}${params.toString() ? `?${params.toString()}` : ""}`;
-  return NextResponse.redirect(mailtoUrl, { status: 307 });
+  return NextResponse.redirect(generateQrData("email", normalized), {
+    status: 307,
+  });
 }
 
 function telResponse(data: unknown) {
-  if (!data || typeof data !== "object") {
-    return unavailableResponse("Ungültige Tel-Daten");
-  }
-  const { phone } = data as Record<string, unknown>;
-  if (!phone) return unavailableResponse("Telefonnummer fehlt");
+  const normalized = normalizeQrData(data);
+  if (!normalized) return unavailableResponse("Ungültige Telefon-Daten");
+  if (!normalized.phone) return unavailableResponse("Telefonnummer fehlt");
 
-  const telUrl = `tel:${encodeURIComponent(String(phone))}`;
-  return NextResponse.redirect(telUrl, { status: 307 });
+  return NextResponse.redirect(generateQrData("tel", normalized), {
+    status: 307,
+  });
 }
 
 function eventResponse(data: unknown) {
-  if (!data || typeof data !== "object") {
-    return unavailableResponse("Ungültige Event-Daten");
+  const normalized = normalizeQrData(data);
+  if (!normalized) return unavailableResponse("Ungültige Event-Daten");
+  if (!normalized.title || !normalized.startDate) {
+    return unavailableResponse("Titel und Startdatum sind erforderlich");
   }
-  const { title, startDate, startTime, endDate, endTime, location, description } = data as Record<string, unknown>;
-  if (!title || !startDate) return unavailableResponse("Titel und Startdatum sind erforderlich");
 
-  const escape = (s: unknown) => String(s || "").replace(/[\n,;]/g, c => (c === "\n" ? "\\n" : `\\${c}`));
-  const start = `${String(startDate).replace(/-/g, "")}${startTime ? `T${String(startTime).replace(/:/g, "")}` : ""}`;
-  const end = endDate ? `${String(endDate).replace(/-/g, "")}${endTime ? `T${String(endTime).replace(/:/g, "")}` : ""}` : start;
+  const filename = filenameForDownload(normalized.title, "ics");
 
-  const ical = `BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Qrft//QR Code Events//DE
-CALSCALE:GREGORIAN
-METHOD:PUBLISH
-BEGIN:VEVENT
-UID:${crypto.randomUUID()}
-DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z
-DTSTART:${start}
-DTEND:${end}
-SUMMARY:${escape(title)}
-${location ? `LOCATION:${escape(location)}` : ""}
-${description ? `DESCRIPTION:${escape(description)}` : ""}
-END:VEVENT
-END:VCALENDAR`;
-
-  return new NextResponse(ical, {
+  return new NextResponse(generateQrData("event", normalized), {
     headers: {
       "content-type": "text/calendar; charset=utf-8",
-      "content-disposition": `attachment; filename="${String(title)}.ics"`,
+      "content-disposition": `attachment; filename="${filename}"`,
       "cache-control": "no-store",
     },
   });
+}
+
+function normalizeQrData(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, String(entry ?? "")]),
+  );
+}
+
+function filenameForDownload(name: string, extension: string) {
+  const safe =
+    name
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "download";
+  return `${safe}.${extension}`;
 }
 
 function unavailableResponse(message: string) {
@@ -202,10 +186,11 @@ function unavailableResponse(message: string) {
     <meta name="robots" content="noindex" />
     <title>${message} | Qrft</title>
     <style>
-      body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f7faf9;color:#10201b}
-      main{max-width:32rem;padding:2rem;text-align:center}
-      p{color:#52635d;line-height:1.6}
-      a{color:#047857}
+      body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f8fafc;color:#0f172a}
+      main{max-width:34rem;padding:2rem;text-align:center}
+      h1{letter-spacing:-.03em}
+      p{color:#52616b;line-height:1.6}
+      a{color:#2563eb}
     </style>
   </head>
   <body>

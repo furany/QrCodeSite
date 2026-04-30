@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
-export function LogoutButton() {
+export function LogoutButton({ showLabel = false }: { showLabel?: boolean }) {
   const router = useRouter();
 
   async function logout() {
@@ -18,11 +18,13 @@ export function LogoutButton() {
   return (
     <Button
       variant="ghost"
-      size="icon-sm"
+      size={showLabel ? "sm" : "icon-sm"}
       aria-label="Ausloggen"
+      title="Ausloggen"
       onClick={() => void logout()}
     >
       <LogOut className="size-4" />
+      {showLabel && <span className="hidden sm:inline">Abmelden</span>}
     </Button>
   );
 }

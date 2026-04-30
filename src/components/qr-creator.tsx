@@ -3,16 +3,23 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   Code,
+  Contact,
   Copy,
   Download,
+  Globe2,
   Image as ImageIcon,
   Link2,
+  Mail,
+  MessageSquareText,
   Palette,
+  Phone,
   Printer,
   Save,
   Wand2,
+  Wifi,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,6 +47,7 @@ import { QrPreview, downloadQr, getSvgString, type QrOptions } from "@/component
 import {
   generateQrData,
   validateQrData,
+  wifiRequiresPassword,
   QR_TYPES,
   type QrType,
 } from "@/lib/qr-types";
@@ -87,6 +95,15 @@ const PRESETS: Record<string, DesignColors> = {
 
 const EXPORT_SIZES = ["512", "1024", "2048", "4096"] as const;
 const MAX_BATCH_SIZE = 100;
+const QR_TYPE_ICONS: Record<QrType, React.ReactNode> = {
+  url: <Globe2 className="size-4" />,
+  vcard: <Contact className="size-4" />,
+  wifi: <Wifi className="size-4" />,
+  sms: <MessageSquareText className="size-4" />,
+  email: <Mail className="size-4" />,
+  tel: <Phone className="size-4" />,
+  event: <CalendarDays className="size-4" />,
+};
 
 async function fetchTemplates() {
   try {
@@ -147,6 +164,15 @@ export function QrCreator() {
     [batchItems],
   );
   const batchLimitExceeded = batchItems.length > MAX_BATCH_SIZE;
+
+  function updateStaticQrTypeData(key: string, value: string) {
+    setQrTypeData((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateDynamicQrData(key: string, value: string) {
+    setDynQrData((current) => ({ ...current, [key]: value }));
+    setDynResult(null);
+  }
 
   const normalizedDynamicUrl = parseHttpUrl(dynUrl);
   const customCodeValue = customCode ? parseCode(customCode) : null;
@@ -642,7 +668,7 @@ export function QrCreator() {
         const msg = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(
           res.status === 401
-            ? "Admin-Passwort erforderlich."
+            ? "Bitte melde dich an, um dynamische QR-Codes zu speichern."
             : msg.error ?? "Fehler beim Erstellen.",
         );
       }
@@ -697,16 +723,19 @@ export function QrCreator() {
   return (
     <div className="pb-20 lg:pb-0">
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:items-start">
-        <Card className="order-2 border-border bg-card p-4 shadow-sm lg:order-1 sm:p-5">
+        <Card className="order-2 overflow-hidden border-border/70 bg-card/95 p-4 shadow-xl shadow-slate-900/5 lg:order-1 sm:p-5">
           <Tabs value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid h-11 w-full grid-cols-3 rounded-lg bg-muted/70 p-1">
               <TabsTrigger value="static">Statisch</TabsTrigger>
               <TabsTrigger value="dynamic">Dynamisch</TabsTrigger>
               <TabsTrigger value="batch">Batch</TabsTrigger>
             </TabsList>
 
             <TabsContent value="static" className="mt-5 space-y-4">
-              <Field label="QR-Code Typ">
+              <Field
+                label="Inhaltstyp"
+                hint="Statische Codes enthalten den Inhalt direkt im QR-Code."
+              >
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                   {(Object.keys(QR_TYPES) as QrType[]).map((type) => (
                     <button
@@ -716,15 +745,20 @@ export function QrCreator() {
                         setQrType(type);
                         setQrTypeData({});
                       }}
-                      className={`rounded-lg border-2 p-3 text-center text-sm transition ${
+                      className={`rounded-lg border p-3 text-left text-sm transition hover:-translate-y-0.5 hover:shadow-sm ${
                         qrType === type
-                          ? "border-ring bg-primary/10 text-primary font-semibold"
-                          : "border-border hover:border-foreground/30"
+                          ? "border-ring bg-primary/10 text-primary shadow-sm"
+                          : "border-border bg-background/70 hover:border-foreground/30"
                       }`}
                       title={QR_TYPES[type].description}
                     >
-                      <div className="text-lg mb-1">{QR_TYPES[type].icon}</div>
-                      <div className="text-xs">{QR_TYPES[type].label}</div>
+                      <div className="mb-2 grid size-8 place-items-center rounded-md bg-background/80 text-foreground shadow-sm">
+                        {QR_TYPE_ICONS[type]}
+                      </div>
+                      <div className="text-xs font-medium">{QR_TYPES[type].label}</div>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                        {QR_TYPES[type].description}
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -819,132 +853,19 @@ export function QrCreator() {
               )}
 
               {qrType === "vcard" && (
-                <>
-                  <Field label="Name" htmlFor="vcard-name">
-                    <Input
-                      id="vcard-name"
-                      value={qrTypeData.name || ""}
-                      onChange={(e) =>
-                        setQrTypeData({ ...qrTypeData, name: e.target.value })
-                      }
-                      placeholder="Max Mustermann"
-                    />
-                  </Field>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="E-Mail" htmlFor="vcard-email">
-                      <Input
-                        id="vcard-email"
-                        type="email"
-                        value={qrTypeData.email || ""}
-                        onChange={(e) =>
-                          setQrTypeData({
-                            ...qrTypeData,
-                            email: e.target.value,
-                          })
-                        }
-                        placeholder="max@example.com"
-                      />
-                    </Field>
-                    <Field label="Telefon" htmlFor="vcard-phone">
-                      <Input
-                        id="vcard-phone"
-                        type="tel"
-                        value={qrTypeData.phone || ""}
-                        onChange={(e) =>
-                          setQrTypeData({
-                            ...qrTypeData,
-                            phone: e.target.value,
-                          })
-                        }
-                        placeholder="+49123456789"
-                      />
-                    </Field>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Organisation" htmlFor="vcard-org">
-                      <Input
-                        id="vcard-org"
-                        value={qrTypeData.org || ""}
-                        onChange={(e) =>
-                          setQrTypeData({ ...qrTypeData, org: e.target.value })
-                        }
-                        placeholder="Firmenname"
-                      />
-                    </Field>
-                    <Field label="Website" htmlFor="vcard-url">
-                      <Input
-                        id="vcard-url"
-                        type="url"
-                        value={qrTypeData.url || ""}
-                        onChange={(e) =>
-                          setQrTypeData({ ...qrTypeData, url: e.target.value })
-                        }
-                        placeholder="https://example.com"
-                      />
-                    </Field>
-                  </div>
-                </>
+                <VCardFields
+                  idPrefix="vcard"
+                  data={qrTypeData}
+                  onChange={updateStaticQrTypeData}
+                />
               )}
 
               {qrType === "wifi" && (
-                <>
-                  <Field label="SSID (Netzwerkname)" htmlFor="wifi-ssid">
-                    <Input
-                      id="wifi-ssid"
-                      value={qrTypeData.ssid || ""}
-                      onChange={(e) =>
-                        setQrTypeData({ ...qrTypeData, ssid: e.target.value })
-                      }
-                      placeholder="MyNetwork"
-                    />
-                  </Field>
-                  <Field label="Sicherheit" htmlFor="wifi-security">
-                    <Select
-                      value={(qrTypeData.security as string) || "WPA"}
-                      onValueChange={(value) => {
-                        if (value) {
-                          setQrTypeData({ ...qrTypeData, security: value });
-                        }
-                      }}
-                    >
-                      <SelectTrigger id="wifi-security">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="WPA">WPA/WPA2</SelectItem>
-                        <SelectItem value="WEP">WEP</SelectItem>
-                        <SelectItem value="open">Offen (kein Passwort)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {qrTypeData.security !== "open" && (
-                    <Field label="Passwort" htmlFor="wifi-password">
-                      <Input
-                        id="wifi-password"
-                        type="password"
-                        value={qrTypeData.password || ""}
-                        onChange={(e) =>
-                          setQrTypeData({
-                            ...qrTypeData,
-                            password: e.target.value,
-                          })
-                        }
-                        placeholder="Netzwerkpasswort"
-                      />
-                    </Field>
-                  )}
-                  <ToggleRow
-                    id="wifi-hidden"
-                    label="Verstecktes Netzwerk"
-                    checked={qrTypeData.hidden === "true"}
-                    onCheckedChange={(checked) =>
-                      setQrTypeData({
-                        ...qrTypeData,
-                        hidden: checked ? "true" : "false",
-                      })
-                    }
-                  />
-                </>
+                <WifiFields
+                  idPrefix="wifi"
+                  data={qrTypeData}
+                  onChange={updateStaticQrTypeData}
+                />
               )}
 
               {qrType === "event" && (
@@ -1053,7 +974,10 @@ export function QrCreator() {
             </TabsContent>
 
             <TabsContent value="dynamic" className="mt-5 space-y-4">
-              <Field label="QR-Code Typ">
+              <Field
+                label="Inhaltstyp"
+                hint="Dynamische Codes speichern einen Kurzlink, den du später im Dashboard bearbeiten kannst."
+              >
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                   {(Object.keys(QR_TYPES) as QrType[]).map((type) => (
                     <button
@@ -1064,15 +988,20 @@ export function QrCreator() {
                         setDynQrData({});
                         setDynResult(null);
                       }}
-                      className={`rounded-lg border-2 p-3 text-center text-sm transition ${
+                      className={`rounded-lg border p-3 text-left text-sm transition hover:-translate-y-0.5 hover:shadow-sm ${
                         dynQrType === type
-                          ? "border-ring bg-primary/10 text-primary font-semibold"
-                          : "border-border hover:border-foreground/30"
+                          ? "border-ring bg-primary/10 text-primary shadow-sm"
+                          : "border-border bg-background/70 hover:border-foreground/30"
                       }`}
                       title={QR_TYPES[type].description}
                     >
-                      <div className="text-lg mb-1">{QR_TYPES[type].icon}</div>
-                      <div className="text-xs">{QR_TYPES[type].label}</div>
+                      <div className="mb-2 grid size-8 place-items-center rounded-md bg-background/80 text-foreground shadow-sm">
+                        {QR_TYPE_ICONS[type]}
+                      </div>
+                      <div className="text-xs font-medium">{QR_TYPES[type].label}</div>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                        {QR_TYPES[type].description}
+                      </p>
                     </button>
                   ))}
                 </div>
@@ -1184,132 +1113,19 @@ export function QrCreator() {
               )}
 
               {dynQrType === "vcard" && (
-                <>
-                  <Field label="Name" htmlFor="dyn-vcard-name">
-                    <Input
-                      id="dyn-vcard-name"
-                      value={dynQrData.name || ""}
-                      onChange={(e) => {
-                        setDynQrData({ ...dynQrData, name: e.target.value });
-                        setDynResult(null);
-                      }}
-                      placeholder="Max Mustermann"
-                    />
-                  </Field>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="E-Mail (optional)" htmlFor="dyn-vcard-email">
-                      <Input
-                        id="dyn-vcard-email"
-                        type="email"
-                        value={dynQrData.email || ""}
-                        onChange={(e) => {
-                          setDynQrData({ ...dynQrData, email: e.target.value });
-                          setDynResult(null);
-                        }}
-                        placeholder="max@example.com"
-                      />
-                    </Field>
-                    <Field label="Telefon (optional)" htmlFor="dyn-vcard-phone">
-                      <Input
-                        id="dyn-vcard-phone"
-                        type="tel"
-                        value={dynQrData.phone || ""}
-                        onChange={(e) => {
-                          setDynQrData({ ...dynQrData, phone: e.target.value });
-                          setDynResult(null);
-                        }}
-                        placeholder="+49123456789"
-                      />
-                    </Field>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Organisation (optional)" htmlFor="dyn-vcard-org">
-                      <Input
-                        id="dyn-vcard-org"
-                        value={dynQrData.org || ""}
-                        onChange={(e) => {
-                          setDynQrData({ ...dynQrData, org: e.target.value });
-                          setDynResult(null);
-                        }}
-                        placeholder="Firmenname"
-                      />
-                    </Field>
-                    <Field label="Website (optional)" htmlFor="dyn-vcard-url">
-                      <Input
-                        id="dyn-vcard-url"
-                        type="url"
-                        value={dynQrData.url || ""}
-                        onChange={(e) => {
-                          setDynQrData({ ...dynQrData, url: e.target.value });
-                          setDynResult(null);
-                        }}
-                        placeholder="https://example.com"
-                      />
-                    </Field>
-                  </div>
-                </>
+                <VCardFields
+                  idPrefix="dyn-vcard"
+                  data={dynQrData}
+                  onChange={updateDynamicQrData}
+                />
               )}
 
               {dynQrType === "wifi" && (
-                <>
-                  <Field label="SSID (Netzwerkname)" htmlFor="dyn-wifi-ssid">
-                    <Input
-                      id="dyn-wifi-ssid"
-                      value={dynQrData.ssid || ""}
-                      onChange={(e) => {
-                        setDynQrData({ ...dynQrData, ssid: e.target.value });
-                        setDynResult(null);
-                      }}
-                      placeholder="MyNetwork"
-                    />
-                  </Field>
-                  <Field label="Sicherheit" htmlFor="dyn-wifi-security">
-                    <Select
-                      value={(dynQrData.security as string) || "WPA"}
-                      onValueChange={(value) => {
-                        if (value) {
-                          setDynQrData({ ...dynQrData, security: value });
-                          setDynResult(null);
-                        }
-                      }}
-                    >
-                      <SelectTrigger id="dyn-wifi-security">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="WPA">WPA/WPA2</SelectItem>
-                        <SelectItem value="WEP">WEP</SelectItem>
-                        <SelectItem value="open">Offen (kein Passwort)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {dynQrData.security !== "open" && (
-                    <Field label="Passwort" htmlFor="dyn-wifi-password">
-                      <Input
-                        id="dyn-wifi-password"
-                        type="password"
-                        value={dynQrData.password || ""}
-                        onChange={(e) => {
-                          setDynQrData({ ...dynQrData, password: e.target.value });
-                          setDynResult(null);
-                        }}
-                        placeholder="Netzwerkpasswort"
-                      />
-                    </Field>
-                  )}
-                  <ToggleRow
-                    id="dyn-wifi-hidden"
-                    label="Verstecktes Netzwerk"
-                    checked={dynQrData.hidden === "true"}
-                    onCheckedChange={(checked) => {
-                      setDynQrData({
-                        ...dynQrData,
-                        hidden: checked ? "true" : "false",
-                      });
-                      setDynResult(null);
-                    }}
-                  />
-                </>
+                <WifiFields
+                  idPrefix="dyn-wifi"
+                  data={dynQrData}
+                  onChange={updateDynamicQrData}
+                />
               )}
 
               {dynQrType === "event" && (
@@ -1502,12 +1318,12 @@ export function QrCreator() {
 
             <TabsContent value="batch" className="mt-5 space-y-4">
               <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                <p className="font-medium mb-2">CSV-Format:</p>
+                <p className="font-medium mb-2">Batch-Import</p>
                 <code className="text-xs bg-background px-2 py-1 rounded block overflow-auto max-h-20">
                   Name, URL{"\n"}Google, https://google.com{"\n"}GitHub, https://github.com
                 </code>
                 <p className="mt-2 text-xs">
-                  Komma oder Semikolon funktionieren. Kopfzeile und Anführungszeichen werden erkannt.
+                  Komma oder Semikolon funktionieren. Kopfzeilen und Anführungszeichen werden erkannt.
                 </p>
               </div>
 
@@ -1675,7 +1491,7 @@ export function QrCreator() {
               <div className="flex items-center justify-between gap-3">
                 <Label className="flex items-center gap-2">
                   <Palette className="size-4" />
-                  Farbschema
+                  Designvorlagen
                 </Label>
                 <span className="text-xs text-muted-foreground">
                   {preset === "Custom" ? "Individuell" : preset}
@@ -1820,12 +1636,12 @@ export function QrCreator() {
               onClick={() => setShowSaveTemplate(true)}
             >
               <Save className="size-4" />
-              Design als Vorlage speichern
+              Aktuelles Design speichern
             </Button>
 
             {showSaveTemplate && (
               <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-3">
-                <h3 className="text-sm font-semibold">Vorlage speichern</h3>
+                <h3 className="text-sm font-semibold">Designvorlage speichern</h3>
                 <Field label="Vorlagen-Name" htmlFor="template-name">
                   <Input
                     id="template-name"
@@ -1880,8 +1696,19 @@ export function QrCreator() {
           </div>
         </Card>
 
-        <Card className="order-1 border-border bg-card p-4 shadow-sm lg:sticky lg:top-20 lg:order-2">
-          <div className="grid place-items-center rounded-lg bg-white p-4 shadow-inner">
+        <Card className="order-1 overflow-hidden border-border/70 bg-card/95 p-4 shadow-xl shadow-slate-900/5 lg:sticky lg:top-20 lg:order-2">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Live-Vorschau</p>
+              <p className="text-xs text-muted-foreground">
+                {printMode ? "Druckoptimiert" : preset === "Custom" ? "Individuelles Design" : preset}
+              </p>
+            </div>
+            <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
+              {exportSize}px
+            </span>
+          </div>
+          <div className="grid place-items-center rounded-lg border border-border/70 bg-white p-4 shadow-inner">
             <QrPreview options={options} size={240} />
           </div>
           <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
@@ -1934,14 +1761,13 @@ export function QrCreator() {
             title="SVG-Code zum Einbetten kopieren"
           >
             <Code className="size-4" />
-            SVG Code
+            SVG-Code
           </Button>
 
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
             <ImageIcon className="mt-0.5 size-4 shrink-0" />
             <span>
-              Bei dynamischen Codes wird erst nach dem Speichern die Kurz-URL in
-              den QR-Code geschrieben.
+              Dynamische Codes verwenden nach dem Speichern die finale Kurz-URL.
             </span>
           </div>
         </Card>
@@ -1998,6 +1824,265 @@ function Field({
       ) : hint ? (
         <p className="text-xs text-muted-foreground">{hint}</p>
       ) : null}
+    </div>
+  );
+}
+
+function VCardFields({
+  idPrefix,
+  data,
+  onChange,
+}: {
+  idPrefix: string;
+  data: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <Field
+        label="Anzeigename"
+        htmlFor={`${idPrefix}-name`}
+        hint="Wird in Kontakt-Apps als Hauptname angezeigt."
+      >
+        <Input
+          id={`${idPrefix}-name`}
+          value={data.name || ""}
+          onChange={(event) => onChange("name", event.target.value)}
+          placeholder="Max Mustermann"
+        />
+      </Field>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Vorname" htmlFor={`${idPrefix}-first-name`}>
+          <Input
+            id={`${idPrefix}-first-name`}
+            value={data.firstName || ""}
+            onChange={(event) => onChange("firstName", event.target.value)}
+            placeholder="Max"
+          />
+        </Field>
+        <Field label="Nachname" htmlFor={`${idPrefix}-last-name`}>
+          <Input
+            id={`${idPrefix}-last-name`}
+            value={data.lastName || ""}
+            onChange={(event) => onChange("lastName", event.target.value)}
+            placeholder="Mustermann"
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="E-Mail" htmlFor={`${idPrefix}-email`}>
+          <Input
+            id={`${idPrefix}-email`}
+            type="email"
+            value={data.email || ""}
+            onChange={(event) => onChange("email", event.target.value)}
+            placeholder="max@example.com"
+          />
+        </Field>
+        <Field label="Website" htmlFor={`${idPrefix}-url`}>
+          <Input
+            id={`${idPrefix}-url`}
+            type="url"
+            value={data.url || ""}
+            onBlur={() => {
+              if (data.url?.trim()) {
+                onChange("url", normalizeUrlInput(data.url));
+              }
+            }}
+            onChange={(event) => onChange("url", event.target.value)}
+            placeholder="https://example.com"
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Mobiltelefon" htmlFor={`${idPrefix}-phone`}>
+          <Input
+            id={`${idPrefix}-phone`}
+            type="tel"
+            value={data.phone || ""}
+            onChange={(event) => onChange("phone", event.target.value)}
+            placeholder="+49 123 456789"
+          />
+        </Field>
+        <Field label="Telefon Arbeit" htmlFor={`${idPrefix}-work-phone`}>
+          <Input
+            id={`${idPrefix}-work-phone`}
+            type="tel"
+            value={data.workPhone || ""}
+            onChange={(event) => onChange("workPhone", event.target.value)}
+            placeholder="+49 30 123456"
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Firma" htmlFor={`${idPrefix}-org`}>
+          <Input
+            id={`${idPrefix}-org`}
+            value={data.org || ""}
+            onChange={(event) => onChange("org", event.target.value)}
+            placeholder="Firmenname"
+          />
+        </Field>
+        <Field label="Abteilung" htmlFor={`${idPrefix}-department`}>
+          <Input
+            id={`${idPrefix}-department`}
+            value={data.department || ""}
+            onChange={(event) => onChange("department", event.target.value)}
+            placeholder="Marketing"
+          />
+        </Field>
+        <Field label="Position" htmlFor={`${idPrefix}-job-title`}>
+          <Input
+            id={`${idPrefix}-job-title`}
+            value={data.jobTitle || ""}
+            onChange={(event) => onChange("jobTitle", event.target.value)}
+            placeholder="Founder"
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <Field label="Straße und Hausnummer" htmlFor={`${idPrefix}-street`}>
+          <Input
+            id={`${idPrefix}-street`}
+            value={data.street || ""}
+            onChange={(event) => onChange("street", event.target.value)}
+            placeholder="Musterstraße 1"
+          />
+        </Field>
+        <Field label="Geburtstag" htmlFor={`${idPrefix}-birthday`}>
+          <Input
+            id={`${idPrefix}-birthday`}
+            type="date"
+            value={data.birthday || ""}
+            onChange={(event) => onChange("birthday", event.target.value)}
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="PLZ" htmlFor={`${idPrefix}-postal-code`}>
+          <Input
+            id={`${idPrefix}-postal-code`}
+            value={data.postalCode || ""}
+            onChange={(event) => onChange("postalCode", event.target.value)}
+            placeholder="10115"
+          />
+        </Field>
+        <Field label="Ort" htmlFor={`${idPrefix}-city`}>
+          <Input
+            id={`${idPrefix}-city`}
+            value={data.city || ""}
+            onChange={(event) => onChange("city", event.target.value)}
+            placeholder="Berlin"
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Bundesland/Region" htmlFor={`${idPrefix}-region`}>
+          <Input
+            id={`${idPrefix}-region`}
+            value={data.region || ""}
+            onChange={(event) => onChange("region", event.target.value)}
+            placeholder="Berlin"
+          />
+        </Field>
+        <Field label="Land" htmlFor={`${idPrefix}-country`}>
+          <Input
+            id={`${idPrefix}-country`}
+            value={data.country || ""}
+            onChange={(event) => onChange("country", event.target.value)}
+            placeholder="Deutschland"
+          />
+        </Field>
+      </div>
+
+      <Field label="Notiz" htmlFor={`${idPrefix}-note`}>
+        <textarea
+          id={`${idPrefix}-note`}
+          value={data.note || ""}
+          onChange={(event) => onChange("note", event.target.value)}
+          placeholder="Optionaler Hinweis, Öffnungszeiten oder Kontext"
+          className="min-h-20 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      </Field>
+    </div>
+  );
+}
+
+function WifiFields({
+  idPrefix,
+  data,
+  onChange,
+}: {
+  idPrefix: string;
+  data: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
+  const security = data.security || "WPA";
+  const requiresPassword = wifiRequiresPassword(security);
+
+  return (
+    <div className="space-y-4">
+      <Field label="Netzwerkname (SSID)" htmlFor={`${idPrefix}-ssid`}>
+        <Input
+          id={`${idPrefix}-ssid`}
+          value={data.ssid || ""}
+          onChange={(event) => onChange("ssid", event.target.value)}
+          placeholder="Studio WLAN"
+        />
+      </Field>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Sicherheit" htmlFor={`${idPrefix}-security`}>
+          <Select
+            value={security}
+            onValueChange={(value) => onChange("security", value ?? "WPA")}
+          >
+            <SelectTrigger id={`${idPrefix}-security`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="WPA">WPA/WPA2</SelectItem>
+              <SelectItem value="WPA2">WPA2</SelectItem>
+              <SelectItem value="WPA3">WPA3</SelectItem>
+              <SelectItem value="WPA2-WPA3">WPA2/WPA3 Mixed</SelectItem>
+              <SelectItem value="WEP">WEP</SelectItem>
+              <SelectItem value="nopass">Offen (kein Passwort)</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+
+        {requiresPassword ? (
+          <Field label="Passwort" htmlFor={`${idPrefix}-password`}>
+            <Input
+              id={`${idPrefix}-password`}
+              type="password"
+              value={data.password || ""}
+              onChange={(event) => onChange("password", event.target.value)}
+              placeholder="Netzwerkpasswort"
+            />
+          </Field>
+        ) : (
+          <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+            Offenes Netzwerk: Der QR-Code enthält kein Passwort.
+          </div>
+        )}
+      </div>
+
+      <ToggleRow
+        id={`${idPrefix}-hidden`}
+        label="Verstecktes Netzwerk"
+        checked={data.hidden === "true"}
+        onCheckedChange={(checked) =>
+          onChange("hidden", checked ? "true" : "false")
+        }
+      />
     </div>
   );
 }
