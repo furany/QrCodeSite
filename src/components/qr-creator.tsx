@@ -48,7 +48,13 @@ import {
   parseNullableDate,
 } from "@/lib/validation";
 import { createRuntimeId } from "@/lib/runtime-id";
-import { QrPreview, downloadQr, getSvgString, type QrOptions } from "@/components/qr-preview";
+import {
+  QrPreview,
+  downloadQr,
+  getQrBlob,
+  getSvgString,
+  type QrOptions,
+} from "@/components/qr-preview";
 import {
   generateQrData,
   validateQrData,
@@ -167,6 +173,9 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [batchCsvText, setBatchCsvText] = useState("");
   const [batchLoading, setBatchLoading] = useState(false);
+  const [batchZipLoading, setBatchZipLoading] = useState<"png" | "svg" | null>(
+    null,
+  );
   const [batchResult, setBatchResult] = useState<BatchCreatedItem[]>([]);
 
   const batchInvalidItems = useMemo(
@@ -577,12 +586,58 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
     const csv = [headers, ...rows].join("\n");
 
     const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    downloadBlob(blob, `batch-qr-codes-${Date.now()}.csv`);
+  }
+
+  async function downloadBatchZip(format: "png" | "svg") {
+    if (batchResult.length === 0) {
+      toast.error("Erstelle zuerst einen Batch.");
+      return;
+    }
+
+    setBatchZipLoading(format);
+    try {
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      const size = Number.parseInt(exportSize, 10);
+      const usedNames = new Set<string>();
+
+      for (const item of batchResult) {
+        const name = uniqueFileBaseName(
+          filenameForQr({ title: item.name, code: item.code }),
+          usedNames,
+        );
+        const blob = await getQrBlob(
+          {
+            ...options,
+            data: toAbsoluteUrl(item.shortUrl),
+          },
+          format,
+          size,
+        );
+
+        zip.file(`${name}.${format}`, blob);
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      downloadBlob(blob, `batch-qr-codes-${Date.now()}-${format}.zip`);
+      toast.success(`${batchResult.length} QR-Codes als ${format.toUpperCase()}-ZIP geladen.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "ZIP konnte nicht erstellt werden.",
+      );
+    } finally {
+      setBatchZipLoading(null);
+    }
+  }
+
+  function downloadBlob(blob: Blob, filename: string) {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.href = url;
-    link.download = `batch-qr-codes-${Date.now()}.csv`;
+    link.download = filename;
     link.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   const options: QrOptions = useMemo(() => {
@@ -1534,18 +1589,40 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
                         {batchResult.length} QR-Codes erstellt
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Die Ergebnis-CSV enthält Kurz-URLs, Slugs und Ziel-URLs.
+                        Lade die Ergebnisliste oder alle QR-Codes mit dem aktuellen Design.
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => downloadBatchCsv(batchResult)}
-                    >
-                      <Download className="size-4" />
-                      CSV erneut laden
-                    </Button>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => downloadBatchCsv(batchResult)}
+                      >
+                        <Download className="size-4" />
+                        CSV
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={batchZipLoading !== null}
+                        onClick={() => void downloadBatchZip("png")}
+                      >
+                        <Download className="size-4" />
+                        {batchZipLoading === "png" ? "PNG..." : "PNG-ZIP"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={batchZipLoading !== null}
+                        onClick={() => void downloadBatchZip("svg")}
+                      >
+                        <Download className="size-4" />
+                        {batchZipLoading === "svg" ? "SVG..." : "SVG-ZIP"}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2333,6 +2410,19 @@ function filenameForQr({
 }) {
   const base = slugify([title, code].filter(Boolean).join("-")) || "qr-code";
   return base;
+}
+
+function uniqueFileBaseName(base: string, usedNames: Set<string>) {
+  let candidate = base || "qr-code";
+  let index = 2;
+
+  while (usedNames.has(candidate)) {
+    candidate = `${base || "qr-code"}-${index}`;
+    index += 1;
+  }
+
+  usedNames.add(candidate);
+  return candidate;
 }
 
 function slugify(value: string) {

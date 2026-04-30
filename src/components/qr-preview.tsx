@@ -64,6 +64,30 @@ export async function downloadQr(
   await qr.download({ name, extension: format });
 }
 
+export async function getQrBlob(
+  options: QrOptions,
+  format: "png" | "svg",
+  size = 1024,
+): Promise<Blob> {
+  const { default: QRCodeStylingCtor } = await import("qr-code-styling");
+  const qr = new QRCodeStylingCtor({
+    width: size,
+    height: size,
+    ...options,
+    type: format === "png" ? "canvas" : "svg",
+  });
+  const data = await qr.getRawData(format);
+
+  if (data instanceof Blob) return data;
+  if (data) {
+    return new Blob([data as BlobPart], {
+      type: format === "png" ? "image/png" : "image/svg+xml",
+    });
+  }
+
+  throw new Error("QR-Code konnte nicht erzeugt werden.");
+}
+
 export async function getSvgString(
   options: QrOptions,
   size = 256,
