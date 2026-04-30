@@ -46,6 +46,7 @@ import {
   parseCode,
   parseHttpUrl,
 } from "@/lib/validation";
+import { createRuntimeId } from "@/lib/runtime-id";
 import { QrPreview, downloadQr, getSvgString, type QrOptions } from "@/components/qr-preview";
 import {
   generateQrData,
@@ -375,7 +376,7 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
       const name = second ? first || `Code ${row.row}` : `Code ${row.row}`;
 
       return {
-        id: crypto.randomUUID(),
+        id: createRuntimeId("batch"),
         row: row.row,
         name,
         url,

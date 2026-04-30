@@ -1,5 +1,7 @@
 // QR-Code generators for supported content types.
 
+import { createRuntimeId } from "@/lib/runtime-id";
+
 export type QrType = "url" | "vcard" | "wifi" | "sms" | "email" | "tel" | "event";
 
 export interface QrTypeConfig {
@@ -87,7 +89,7 @@ export function generateQrData(
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
         "BEGIN:VEVENT",
-        `UID:${crypto.randomUUID()}`,
+        `UID:${createRuntimeId("event")}`,
         `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`,
         `SUMMARY:${icalEscape(data.title || "Event")}`,
         start ? `DTSTART:${start}` : null,
