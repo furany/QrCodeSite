@@ -45,6 +45,7 @@ import {
   normalizeUrlInput,
   parseCode,
   parseHttpUrl,
+  parseNullableDate,
 } from "@/lib/validation";
 import { createRuntimeId } from "@/lib/runtime-id";
 import { QrPreview, downloadQr, getSvgString, type QrOptions } from "@/components/qr-preview";
@@ -72,9 +73,18 @@ type BatchItem = {
   name: string;
   url: string;
   normalizedUrl: string | null;
+  code: string;
+  parsedCode: string | null;
+  expiresAt: string;
   error: string | null;
 };
 type ValidBatchItem = BatchItem & { normalizedUrl: string; error: null };
+type BatchCreatedItem = {
+  name: string;
+  code: string;
+  shortUrl: string;
+  targetUrl: string;
+};
 type StyleTemplate = {
   id: string;
   name: string;
@@ -157,6 +167,7 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [batchCsvText, setBatchCsvText] = useState("");
   const [batchLoading, setBatchLoading] = useState(false);
+  const [batchResult, setBatchResult] = useState<BatchCreatedItem[]>([]);
 
   const batchInvalidItems = useMemo(
     () => batchItems.filter((item) => item.error),
@@ -366,14 +377,35 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
     const rows = parseCsvRows(csv, delimiter).filter((row) =>
       row.fields.some((field) => field.trim()),
     );
-    const dataRows = rows[0] && isBatchHeader(rows[0].fields) ? rows.slice(1) : rows;
+    const header = rows[0] && isBatchHeader(rows[0].fields) ? rows[0].fields : null;
+    const dataRows = header ? rows.slice(1) : rows;
 
     return dataRows.map((row) => {
-      const first = row.fields[0]?.trim() ?? "";
-      const second = row.fields[1]?.trim() ?? "";
-      const url = second || first;
+      const { name, url, code, expiresAt } = parseBatchRow(
+        row.fields,
+        row.row,
+        header,
+      );
       const normalizedUrl = parseHttpUrl(url);
-      const name = second ? first || `Code ${row.row}` : `Code ${row.row}`;
+      const parsedCode = code ? parseCode(code) : null;
+      const parsedExpiresAt = expiresAt ? parseNullableDate(expiresAt) : null;
+      const errors: string[] = [];
+
+      if (!url) {
+        errors.push("URL fehlt.");
+      } else if (!normalizedUrl) {
+        errors.push("URL ist ungültig.");
+      }
+
+      if (code && !parsedCode) {
+        errors.push("Slug ist ungültig.");
+      }
+
+      if (parsedExpiresAt === undefined) {
+        errors.push("Ablaufdatum ist ungültig.");
+      } else if (parsedExpiresAt && parsedExpiresAt.getTime() <= Date.now()) {
+        errors.push("Ablaufdatum muss in der Zukunft liegen.");
+      }
 
       return {
         id: createRuntimeId("batch"),
@@ -381,17 +413,17 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
         name,
         url,
         normalizedUrl,
-        error: !url
-          ? "URL fehlt."
-          : normalizedUrl
-            ? null
-            : "URL ist ungültig.",
+        code,
+        parsedCode,
+        expiresAt,
+        error: errors.length ? errors.join(" ") : null,
       };
     });
   }
 
   function handleBatchCsvChange(csv: string) {
     setBatchCsvText(csv);
+    setBatchResult([]);
     const items = parseBatchCsv(csv);
     setBatchItems(items);
   }
@@ -414,7 +446,7 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
 
   function insertBatchExample() {
     handleBatchCsvChange(
-      "Name, URL\nGoogle, https://google.com\nGitHub, https://github.com",
+      "Name, URL, Slug, Ablaufdatum\nGoogle, https://google.com, google-demo,\nGitHub, https://github.com, github-demo,",
     );
   }
 
@@ -444,12 +476,8 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
     }
 
     setBatchLoading(true);
-    const created: Array<{
-      name: string;
-      code: string;
-      shortUrl: string;
-      targetUrl: string;
-    }> = [];
+    setBatchResult([]);
+    const created: BatchCreatedItem[] = [];
     const failures: string[] = [];
 
     try {
@@ -462,6 +490,8 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
             name: item.name,
             title: item.name,
             targetUrl: item.normalizedUrl,
+            code: item.parsedCode,
+            expiresAt: item.expiresAt || null,
           })),
         }),
       });
@@ -510,6 +540,7 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
             ? `${created.length} QR-Codes erstellt, ${failures.length} fehlgeschlagen.`
             : `${created.length} QR-Codes erstellt.`,
         );
+        setBatchResult(created);
         downloadBatchCsv(created);
         if (failures.length === 0) {
           setBatchCsvText("");
@@ -533,14 +564,7 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
     }
   }
 
-  function downloadBatchCsv(
-    created: Array<{
-      name: string;
-      code: string;
-      shortUrl: string;
-      targetUrl: string;
-    }>
-  ) {
+  function downloadBatchCsv(created: BatchCreatedItem[]) {
     const headers = ["Name", "Code", "Kurz-URL", "Ziel-URL"].join(",");
     const rows = created.map((item) =>
       [
@@ -552,7 +576,7 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
     );
     const csv = [headers, ...rows].join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.href = url;
@@ -1372,10 +1396,10 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
               <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                 <p className="font-medium mb-2">Batch-Import</p>
                 <code className="text-xs bg-background px-2 py-1 rounded block overflow-auto max-h-20">
-                  Name, URL{"\n"}Google, https://google.com{"\n"}GitHub, https://github.com
+                  Name, URL, Slug, Ablaufdatum{"\n"}Google, https://google.com, google-demo,{"\n"}GitHub, https://github.com, github-demo,
                 </code>
                 <p className="mt-2 text-xs">
-                  Komma oder Semikolon funktionieren. Kopfzeilen und Anführungszeichen werden erkannt.
+                  Komma oder Semikolon funktionieren. Optionale Spalten: Slug, Code, Ablaufdatum oder Gültig bis.
                 </p>
               </div>
 
@@ -1409,7 +1433,7 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
                   onInput={(event) =>
                     handleBatchCsvChange(event.currentTarget.value)
                   }
-                  placeholder={"Name, URL\nGoogle, https://google.com\nGitHub, https://github.com"}
+                  placeholder={"Name, URL, Slug, Ablaufdatum\nGoogle, https://google.com, google-demo,\nGitHub, https://github.com, github-demo,"}
                   className="min-h-32 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </Field>
@@ -1455,6 +1479,16 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
                           >
                             {item.error ?? item.normalizedUrl}
                           </p>
+                          {!item.error && (item.parsedCode || item.expiresAt) && (
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {[
+                                item.parsedCode ? `Slug: ${item.parsedCode}` : null,
+                                item.expiresAt ? `Ablauf: ${item.expiresAt}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          )}
                         </div>
                         {item.error ? (
                           <AlertTriangle className="size-4 shrink-0 text-destructive" />
@@ -1491,6 +1525,30 @@ export function QrCreator({ isAuthenticated = false }: QrCreatorProps) {
                   </>
                 )}
               </Button>
+
+              {batchResult.length > 0 && (
+                <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-medium">
+                        {batchResult.length} QR-Codes erstellt
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Die Ergebnis-CSV enthält Kurz-URLs, Slugs und Ziel-URLs.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => downloadBatchCsv(batchResult)}
+                    >
+                      <Download className="size-4" />
+                      CSV erneut laden
+                    </Button>
+                  </div>
+                </div>
+              )}
             </TabsContent>
           </Tabs>
 
@@ -2291,6 +2349,86 @@ function isHexColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
+function parseBatchRow(
+  fields: string[],
+  row: number,
+  header: string[] | null,
+) {
+  if (header) {
+    const name = readBatchColumn(fields, header, [
+      "name",
+      "titel",
+      "title",
+      "bezeichnung",
+    ]);
+    const url = readBatchColumn(fields, header, [
+      "url",
+      "link",
+      "ziel",
+      "ziel-url",
+      "ziel url",
+      "targeturl",
+      "target url",
+    ]);
+    const code = readBatchColumn(fields, header, [
+      "slug",
+      "code",
+      "kurzcode",
+      "shortcode",
+      "short code",
+    ]);
+    const expiresAt = readBatchColumn(fields, header, [
+      "ablauf",
+      "ablaufdatum",
+      "gültig bis",
+      "gultig bis",
+      "gueltig bis",
+      "expires",
+      "expiresat",
+      "expires at",
+      "expires_at",
+      "valid until",
+    ]);
+
+    return {
+      name: name || `Code ${row}`,
+      url,
+      code,
+      expiresAt,
+    };
+  }
+
+  const first = fields[0]?.trim() ?? "";
+  const second = fields[1]?.trim() ?? "";
+  const third = fields[2]?.trim() ?? "";
+  const fourth = fields[3]?.trim() ?? "";
+  const secondIsUrl = Boolean(parseHttpUrl(second));
+
+  return {
+    name: secondIsUrl ? first || `Code ${row}` : `Code ${row}`,
+    url: secondIsUrl ? second : first,
+    code: secondIsUrl ? third : second,
+    expiresAt: secondIsUrl ? fourth : third,
+  };
+}
+
+function readBatchColumn(fields: string[], header: string[], aliases: string[]) {
+  const index = header.findIndex((field) =>
+    aliases.includes(normalizeBatchHeader(field)),
+  );
+  return index >= 0 ? fields[index]?.trim() ?? "" : "";
+}
+
+function normalizeBatchHeader(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
 function detectCsvDelimiter(csv: string) {
   const firstLine = csv.split(/\r?\n/).find((line) => line.trim()) ?? "";
   const commaCount = countDelimiterOutsideQuotes(firstLine, ",");
@@ -2370,14 +2508,13 @@ function parseCsvRows(csv: string, delimiter: "," | ";") {
 }
 
 function isBatchHeader(fields: string[]) {
-  const normalized = fields.map((field) => field.trim().toLowerCase());
-  const hasName = normalized.some((field) =>
-    ["name", "titel", "title"].includes(field),
-  );
+  const normalized = fields.map(normalizeBatchHeader);
   const hasUrl = normalized.some((field) =>
-    ["url", "link", "ziel-url", "targeturl", "target url"].includes(field),
+    ["url", "link", "ziel", "ziel url", "targeturl", "target url"].includes(
+      field,
+    ),
   );
-  return hasUrl && (hasName || normalized.length === 1);
+  return hasUrl;
 }
 
 function csvCell(value: string) {

@@ -83,8 +83,10 @@ export async function POST(req: Request) {
   for (const [index, item] of items.entries()) {
     const row = parseRow(item.row, index + 1);
     const targetUrl = parseHttpUrl(item.targetUrl);
-    const parsedCode = item.code ? parseCode(item.code) : null;
-    const parsedExpiresAt = parseNullableDate(item.expiresAt);
+    const codeValue = optionalString(item.code);
+    const parsedCode = codeValue ? parseCode(codeValue) : null;
+    const expiresAtValue = optionalString(item.expiresAt);
+    const parsedExpiresAt = parseNullableDate(expiresAtValue);
     const title = parseTitle(item.title ?? item.name);
 
     if (!targetUrl) {
@@ -92,7 +94,7 @@ export async function POST(req: Request) {
       continue;
     }
 
-    if (item.code && !parsedCode) {
+    if (codeValue && !parsedCode) {
       failures.push({
         row,
         error: "Slug darf nur Kleinbuchstaben, Zahlen und Bindestriche enthalten.",
@@ -102,6 +104,14 @@ export async function POST(req: Request) {
 
     if (parsedExpiresAt === undefined) {
       failures.push({ row, error: "Ablaufdatum ist ungültig." });
+      continue;
+    }
+
+    if (parsedExpiresAt && parsedExpiresAt.getTime() <= Date.now()) {
+      failures.push({
+        row,
+        error: "Ablaufdatum muss in der Zukunft liegen.",
+      });
       continue;
     }
 
@@ -152,4 +162,9 @@ function parseRow(value: unknown, fallback: number) {
     return fallback;
   }
   return value;
+}
+
+function optionalString(value: unknown) {
+  if (value == null) return "";
+  return String(value).trim();
 }
